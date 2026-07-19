@@ -1,0 +1,12 @@
+.env
+backend/back_web/.env
+backend/back_ai/.env
+frontend/.env
+
+
+
+node_modules/
+.env
+
+venv/
+__pycache__/

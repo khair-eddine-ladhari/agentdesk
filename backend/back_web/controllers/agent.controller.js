@@ -1,14 +1,11 @@
-import { Response } from "express";
-import ActionLog from "../models/ActionLog";
-import { TenantRequest } from "../middleware/tenantScope";
-import Workspace from "../models/Workspace";
-import { AgentRequest, AgentResponse, AgentType } from "../types/agent.types";
+const ActionLog = require("../models/ActionLog");
+const Workspace = require("../models/Workspace");
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8000";
 
-export async function callAgent(req: TenantRequest, res: Response) {
+async function callAgent(req, res) {
   try {
-    const { agentType, query } = req.body as { agentType: AgentType; query: string };
+    const { agentType, query } = req.body;
     if (!agentType || !query) {
       return res.status(400).json({ error: "agentType and query are required" });
     }
@@ -16,8 +13,8 @@ export async function callAgent(req: TenantRequest, res: Response) {
     const workspace = await Workspace.findById(req.workspaceId);
     if (!workspace) return res.status(404).json({ error: "Workspace not found" });
 
-    const payload: AgentRequest = {
-      workspaceId: req.workspaceId as string,
+    const payload = {
+      workspaceId: req.workspaceId,
       pineconeNamespace: workspace.pineconeNamespace,
       agentType,
       query,
@@ -33,9 +30,9 @@ export async function callAgent(req: TenantRequest, res: Response) {
       return res.status(502).json({ error: "Agent service failed to respond" });
     }
 
-    const result = (await agentRes.json()) as AgentResponse;
+    const result = await agentRes.json();
 
-    // Every agent run gets logged — this is the owner-facing audit trail.
+    // Every agent run gets logged - this is the owner-facing audit trail.
     // Action-type results default to requiresApproval=true (draft mode),
     // so nothing external fires without a human confirming first.
     const log = await ActionLog.create({
@@ -51,3 +48,5 @@ export async function callAgent(req: TenantRequest, res: Response) {
     res.status(500).json({ error: "Failed to reach agent service" });
   }
 }
+
+module.exports = { callAgent };

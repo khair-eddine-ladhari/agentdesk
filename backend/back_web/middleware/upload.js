@@ -1,6 +1,6 @@
-import multer from "multer";
-import path from "path";
-import fs from "fs";
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
 
 const UPLOAD_DIR = path.join(__dirname, "../../uploads");
 if (!fs.existsSync(UPLOAD_DIR)) {
@@ -17,7 +17,7 @@ const storage = multer.diskStorage({
   },
 });
 
-function fileFilter(_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) {
+function fileFilter(_req, file, cb) {
   const ext = path.extname(file.originalname).toLowerCase();
   if (!ALLOWED_EXTENSIONS.includes(ext)) {
     return cb(new Error(`Unsupported file type: ${ext}`));
@@ -25,8 +25,10 @@ function fileFilter(_req: any, file: Express.Multer.File, cb: multer.FileFilterC
   cb(null, true);
 }
 
-export const upload = multer({
+const upload = multer({
   storage,
   fileFilter,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB cap
 });
+
+module.exports = { upload };

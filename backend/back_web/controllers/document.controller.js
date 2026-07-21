@@ -1,16 +1,14 @@
-import { Response } from "express";
-import path from "path";
-import DocumentModel from "../models/Document";
-import { TenantRequest } from "../middleware/tenantScope";
+const path = require("path");
+const DocumentModel = require("../models/Document");
 
-const EXT_TO_TYPE: Record<string, "txt" | "md" | "pdf" | "docx"> = {
+const EXT_TO_TYPE = {
   ".txt": "txt",
   ".md": "md",
   ".pdf": "pdf",
   ".docx": "docx",
 };
 
-export async function uploadDocument(req: TenantRequest, res: Response) {
+async function uploadDocument(req, res) {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "No file uploaded" });
@@ -30,9 +28,9 @@ export async function uploadDocument(req: TenantRequest, res: Response) {
       status: "pending", // flips to "embedded" once the Python service processes it
     });
 
-    // NOTE: this only stores the file + metadata. Actually sending the file's
-    // text to the Python service for chunking/embedding into Pinecone is not
-    // wired up yet - that's part of the RAG agent work we're deferring for now.
+    // NOTE: this only stores the file + metadata. Sending the file's text to
+    // the Python service for chunking/embedding into Pinecone isn't wired up
+    // yet - that's part of the RAG agent work we're deferring for now.
 
     res.status(201).json(doc);
   } catch (err) {
@@ -40,7 +38,7 @@ export async function uploadDocument(req: TenantRequest, res: Response) {
   }
 }
 
-export async function listDocuments(req: TenantRequest, res: Response) {
+async function listDocuments(req, res) {
   try {
     const docs = await DocumentModel.find({ workspace: req.workspaceId }).sort({ createdAt: -1 });
     res.json(docs);
@@ -48,3 +46,5 @@ export async function listDocuments(req: TenantRequest, res: Response) {
     res.status(500).json({ error: "Failed to list documents" });
   }
 }
+
+module.exports = { uploadDocument, listDocuments };

@@ -1,12 +1,13 @@
-import express from "express";
-import cors from "cors";
-import helmet from "helmet";
-import dotenv from "dotenv";
-import { connectDB } from "./config/db";
-import authRoutes from "./routes/auth.routes";
-import workspaceRoutes from "./routes/workspace.routes";
-import agentRoutes from "./routes/agent.routes";
-import documentRoutes from "./routes/document.routes";
+const express = require("express");
+const cors = require("cors");
+const helmet = require("helmet");
+const dotenv = require("dotenv");
+const { connectDB } = require("./config/db");
+const authRoutes = require("./routes/auth.routes");
+const workspaceRoutes = require("./routes/workspace.routes");
+const agentRoutes = require("./routes/agent.routes");
+const documentRoutes = require("./routes/document.routes");
+
 dotenv.config();
 
 const app = express();

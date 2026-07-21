@@ -1,9 +1,7 @@
-import { Response } from "express";
-import { randomUUID } from "crypto";
-import Workspace from "../models/Workspace";
-import { AuthRequest } from "../middleware/auth";
+const { randomUUID } = require("crypto");
+const Workspace = require("../models/Workspace");
 
-export async function createWorkspace(req: AuthRequest, res: Response) {
+async function createWorkspace(req, res) {
   try {
     const { name } = req.body;
     if (!name) return res.status(400).json({ error: "name is required" });
@@ -12,7 +10,6 @@ export async function createWorkspace(req: AuthRequest, res: Response) {
       name,
       owner: req.userId,
       members: [req.userId],
-      // unique namespace so this workspace's vectors never mix with another's in Pinecone
       pineconeNamespace: `ws-${randomUUID()}`,
     });
 
@@ -22,7 +19,7 @@ export async function createWorkspace(req: AuthRequest, res: Response) {
   }
 }
 
-export async function listMyWorkspaces(req: AuthRequest, res: Response) {
+async function listMyWorkspaces(req, res) {
   try {
     const workspaces = await Workspace.find({
       $or: [{ owner: req.userId }, { members: req.userId }],
@@ -32,3 +29,5 @@ export async function listMyWorkspaces(req: AuthRequest, res: Response) {
     res.status(500).json({ error: "Failed to list workspaces" });
   }
 }
+
+module.exports = { createWorkspace, listMyWorkspaces };

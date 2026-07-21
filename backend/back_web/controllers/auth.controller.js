@@ -1,14 +1,14 @@
-import { Request, Response } from "express";
-import jwt from "jsonwebtoken";
-import User from "../models/User";
+const jwt = require("jsonwebtoken");
+const User = require("../models/User");
 
-function signToken(userId: string) {
-  return jwt.sign({ userId }, process.env.JWT_SECRET as string, {
+function signToken(userId) {
+  return jwt.sign({ userId }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN || "7d",
-  } as jwt.SignOptions);
+  });
 }
 
-export async function register(req: Request, res: Response) {
+async function register(req, res) {
+  
   try {
     const { name, email, password } = req.body;
     if (!name || !email || !password) {
@@ -28,11 +28,12 @@ export async function register(req: Request, res: Response) {
       user: { id: user._id, name: user.name, email: user.email },
     });
   } catch (err) {
+    console.error("REGISTER ERROR:", err); // make sure this exact line is here
     res.status(500).json({ error: "Registration failed" });
   }
 }
 
-export async function login(req: Request, res: Response) {
+async function login(req, res) {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
@@ -50,6 +51,9 @@ export async function login(req: Request, res: Response) {
       user: { id: user._id, name: user.name, email: user.email },
     });
   } catch (err) {
+     console.error(err);
     res.status(500).json({ error: "Login failed" });
   }
 }
+
+module.exports = { register, login };

@@ -4,38 +4,41 @@ from pinecone import Pinecone
 _pc = Pinecone(api_key=os.environ.get("PINECONE_API_KEY"))
 _index = _pc.Index(os.environ.get("PINECONE_INDEX_NAME", "workspace-docs"))
 
+EMBEDDING_MODEL = "llama-text-embed-v2"
 TOP_K = 5
 
 
 def retrieve(query: str, namespace: str) -> list[dict]:
-    """
-    Searches only within this workspace's namespace (so one workspace can
-    never see another workspace's documents), and returns the matched
-    chunks with their source filename attached - this is what lets
-    rag_agent.py's answers be traced back to a real document instead of
-    being a black box.
+    query_vector = _embed(query)
 
-    No separate embedding call is needed here - the index itself was
-    created with an integrated embedding model, so Pinecone embeds the
-    raw query text server-side and searches in the same step.
-    """
-    results = _index.search(
+    results = _index.query(
+        vector=query_vector,
         namespace=namespace,
-        query={
-            "inputs": {"text": query},
-            "top_k": TOP_K,
-        },
-        fields=["text", "source"],
+        top_k=TOP_K,
+        include_metadata=True,
     )
-
-    hits = results.get("result", {}).get("hits", [])
 
     return [
         {
-            "text": hit["fields"]["text"],
-            "source": hit["fields"].get("source", "unknown"),
-            "score": hit["_score"],
+            "text": match["metadata"]["text"],
+            "source": match["metadata"].get("source", "unknown"),
+            "score": match["score"],
         }
-        for hit in hits
-        if hit.get("fields", {}).get("text")
+        for match in results.get("matches", [])
+        if match.get("metadata", {}).get("text")
     ]
+
+
+def _embed(text: str) -> list[float]:
+    """
+    Turns text into a vector using Pinecone's own hosted embedding model,
+    instead of OpenAI's. Same role as before - both indexing (Node.js
+    upload side) and querying (here) need to use this same model so
+    vectors land in the same embedding space.
+    """
+    response = _pc.inference.embed(
+        model=EMBEDDING_MODEL,
+        inputs=[text],
+        parameters={"input_type": "query"},
+    )
+    return response[0]["values"]

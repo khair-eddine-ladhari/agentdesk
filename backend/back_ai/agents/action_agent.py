@@ -12,8 +12,12 @@ and approve or reject your proposal before anything actually happens.
 Respond with ONLY valid JSON in this exact shape, nothing else:
 {
   "action": "create_task" | "send_email" | "schedule_meeting" | "unknown",
-  "summary": "one plain-English sentence describing what you're proposing to do",
-  "parameters": { ... action-specific fields, e.g. title, assignee, dueDate, body, attendees, time ... }
+  "summary": "...",
+  "parameters": {
+    // for create_task: { "title": string, "assignee": string, "dueDate": string }
+    // for send_email: { "to": string, "subject": string, "body": string }
+    // for schedule_meeting: { "attendees": [string], "time": string, "title": string }
+  }
 }
 
 If the request doesn't clearly map to a supported action, or is missing required

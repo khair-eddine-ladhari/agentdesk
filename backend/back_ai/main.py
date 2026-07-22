@@ -10,6 +10,17 @@ from pydantic import BaseModel
 from orchestrator import run_orchestrator
 from ingestion_tool import ingest_document
 
+
+
+
+from tools.email_draft_tool import send_email
+# from tools.create_task import create_task
+# from tools.schedule_meeting import schedule_meeting
+
+
+
+
+
 app = FastAPI(title="Workspace Agents Service")
 
 # The Node/Express backend (with its own JWT auth) is what actually faces
@@ -88,6 +99,37 @@ def ingest(payload: IngestRequest):
     except Exception as exc:
         print(f"[ingest] error: {exc}")
         raise HTTPException(status_code=500, detail="Ingestion failed") from exc
+    
+
+
+
+
+
+
+
+
+
+
+TOOL_MAP = {
+    "send_email": send_email,
+    # "create_task": create_task,
+    # "schedule_meeting": schedule_meeting,
+}
+
+@app.post("/approve")
+async def approve_action(payload: dict):
+    tool_name = payload.get("tool")
+    parameters = payload.get("parameters", {})
+
+    tool_fn = TOOL_MAP.get(tool_name)
+    if not tool_fn:
+        return {"success": False, "error": f"Unknown tool: {tool_name}"}
+
+    return tool_fn(parameters)
+
+
+
+
 
 
 @app.get("/health")

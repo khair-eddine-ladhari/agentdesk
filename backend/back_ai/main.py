@@ -1,4 +1,5 @@
 
+
 from dotenv import load_dotenv
 load_dotenv()
 import os
@@ -7,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from orchestrator import run_orchestrator
+from ingestion_tool import ingest_document
 
 app = FastAPI(title="Workspace Agents Service")
 
@@ -34,6 +36,17 @@ class AgentResponse(BaseModel):
     toolCalls: list[dict] | None = None
 
 
+class IngestRequest(BaseModel):
+    text: str
+    namespace: str        # workspace's pineconeNamespace, from Node
+    documentId: str        # Mongo _id of the Document record, from Node
+    filename: str
+
+
+class IngestResponse(BaseModel):
+    chunkCount: int
+
+
 @app.post("/agents/run", response_model=AgentResponse)
 def run_agent(payload: AgentRequest):
     """
@@ -48,10 +61,33 @@ def run_agent(payload: AgentRequest):
     try:
         return run_orchestrator(payload.query, payload.namespace)
     except Exception as exc:
-        # Don't leak internals (stack traces, API key errors, etc.) to the
-        # caller - log server-side, return a clean generic error instead.
         print(f"[agents.run] error: {exc}")
         raise HTTPException(status_code=500, detail="Agent run failed") from exc
+
+
+@app.post("/ingest", response_model=IngestResponse)
+def ingest(payload: IngestRequest):
+    """
+    Called by Node right after a file is saved to disk and its raw text
+    extracted. This endpoint owns chunking + embedding + Pinecone upsert -
+    Node no longer does any of that, it just forwards plain text here.
+    Node updates the Document's status based on whether this call
+    succeeds or fails.
+    """
+    if not payload.text or not payload.text.strip():
+        raise HTTPException(status_code=400, detail="text must not be empty")
+
+    try:
+        chunk_count = ingest_document(
+            text=payload.text,
+            namespace=payload.namespace,
+            document_id=payload.documentId,
+            filename=payload.filename,
+        )
+        return {"chunkCount": chunk_count}
+    except Exception as exc:
+        print(f"[ingest] error: {exc}")
+        raise HTTPException(status_code=500, detail="Ingestion failed") from exc
 
 
 @app.get("/health")

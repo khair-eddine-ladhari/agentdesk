@@ -8,6 +8,7 @@ const workspaceRoutes = require("./routes/workspace.routes");
 const agentRoutes = require("./routes/agent.routes");
 const documentRoutes = require("./routes/document.routes");
 
+
 dotenv.config();
 
 const app = express();

@@ -1,5 +1,8 @@
 const path = require("path");
+const fs = require("fs");
+const axios = require("axios"); // npm install axios if not already present
 const DocumentModel = require("../models/Document");
+const Workspace = require("../models/Workspace"); // adjust path if needed
 
 const EXT_TO_TYPE = {
   ".txt": "txt",
@@ -7,6 +10,18 @@ const EXT_TO_TYPE = {
   ".pdf": "pdf",
   ".docx": "docx",
 };
+
+const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8000";
+
+// Only .txt/.md are readable as plain text right now. .pdf/.docx need a
+// parser library (pdf-parse / mammoth) - not implemented yet, so those
+// upload and save metadata fine, but stay "pending" rather than crashing.
+function extractText(filePath, fileType) {
+  if (fileType === "txt" || fileType === "md") {
+    return fs.readFileSync(filePath, "utf-8");
+  }
+  return null; // signals "can't extract yet" without throwing
+}
 
 async function uploadDocument(req, res) {
   try {
@@ -25,15 +40,56 @@ async function uploadDocument(req, res) {
       uploadedBy: req.userId,
       filename: req.file.originalname,
       fileType,
-      status: "pending", // flips to "embedded" once the Python service processes it
+      status: "pending",
     });
 
-    // NOTE: this only stores the file + metadata. Sending the file's text to
-    // the Python service for chunking/embedding into Pinecone isn't wired up
-    // yet - that's part of the RAG agent work we're deferring for now.
+    const text = extractText(req.file.path, fileType);
 
-    res.status(201).json(doc);
+    if (text === null) {
+      return res.status(201).json({
+        ...doc.toObject(),
+        note: `Metadata saved, but text extraction for ${ext} isn't implemented yet - status stays "pending"`,
+      });
+    }
+
+    if (!text.trim()) {
+      doc.status = "failed";
+      await doc.save();
+      return res.status(201).json({ ...doc.toObject(), note: "File was empty" });
+    }
+
+    // Chunking + embedding now lives entirely in the Python service -
+    // Node just forwards plain text and the workspace's Pinecone
+    // namespace, then updates status based on what comes back.
+    try {
+      const workspace = await Workspace.findById(req.workspaceId);
+
+      const { data } = await axios.post(`${AI_SERVICE_URL}/ingest`, {
+        text,
+        namespace: workspace.pineconeNamespace,
+        documentId: doc._id.toString(),
+        filename: req.file.originalname,
+      });
+
+      doc.status = "embedded";
+      await doc.save();
+
+      return res.status(201).json({
+        ...doc.toObject(),
+        chunkCount: data.chunkCount,
+      });
+    } catch (ingestErr) {
+      console.error(`[uploadDocument] ingest failed for doc ${doc._id}:`, ingestErr.message);
+      doc.status = "failed";
+      await doc.save();
+      return res.status(201).json({
+        ...doc.toObject(),
+        note: "File saved, but embedding failed",
+        detail: ingestErr.message,
+      });
+    }
   } catch (err) {
+    console.error("[uploadDocument] error:", err);
     res.status(500).json({ error: "Failed to upload document" });
   }
 }

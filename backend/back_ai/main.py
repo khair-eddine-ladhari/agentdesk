@@ -1,5 +1,3 @@
-
-
 from dotenv import load_dotenv
 load_dotenv()
 import os
@@ -9,16 +7,6 @@ from pydantic import BaseModel
 
 from orchestrator import run_orchestrator
 from ingestion_tool import ingest_document
-
-
-
-
-from tools.email_draft_tool import send_email
-# from tools.create_task import create_task
-# from tools.schedule_meeting import schedule_meeting
-
-
-
 
 
 app = FastAPI(title="Workspace Agents Service")
@@ -65,6 +53,13 @@ def run_agent(payload: AgentRequest):
     already verified the request's JWT and resolved which workspace the
     user belongs to before calling this - by the time a request lands
     here, `namespace` is trusted, not user-suppliable-and-unchecked.
+
+    This service is read-only / side-effect-free by design: it only ever
+    proposes actions (toolCalls), it never executes them. There is no
+    database write anywhere in this file. Approving and actually
+    performing an action (creating a task, sending an email, etc.) is
+    Node's responsibility - see back_web's /agent/approve route - because
+    Node is the only layer with auth and workspace-scoping.
     """
     if not payload.query or not payload.query.strip():
         raise HTTPException(status_code=400, detail="query must not be empty")
@@ -99,37 +94,6 @@ def ingest(payload: IngestRequest):
     except Exception as exc:
         print(f"[ingest] error: {exc}")
         raise HTTPException(status_code=500, detail="Ingestion failed") from exc
-    
-
-
-
-
-
-
-
-
-
-
-TOOL_MAP = {
-    "send_email": send_email,
-    # "create_task": create_task,
-    # "schedule_meeting": schedule_meeting,
-}
-
-@app.post("/approve")
-async def approve_action(payload: dict):
-    tool_name = payload.get("tool")
-    parameters = payload.get("parameters", {})
-
-    tool_fn = TOOL_MAP.get(tool_name)
-    if not tool_fn:
-        return {"success": False, "error": f"Unknown tool: {tool_name}"}
-
-    return tool_fn(parameters)
-
-
-
-
 
 
 @app.get("/health")

@@ -5,8 +5,14 @@ from agents.rag_agent import run_rag_agent
 from agents.structuring_agent import run_structuring_agent
 from agents.action_agent import run_action_agent
 from agents.research_agent import run_research_agent
+from agents.chat_agent import run_chat_agent
 
-CLASSIFY_PROMPT = """You are a router for a workspace assistant with four specialist agents:
+CLASSIFY_PROMPT = """You are a router for a workspace assistant with five specialist agents:
+
+- "chat": the user is making casual conversation - a greeting, small talk,
+  a vague or general message that isn't a specific document question, notes
+  to structure, an action to perform, or a complex research question
+  (e.g. "hi", "thanks", "what can you do?", "how's it going").
 
 - "rag": the user is asking a SIMPLE QUESTION answerable directly from documents
   already stored in their workspace (e.g. "what does our contract say about
@@ -26,18 +32,19 @@ CLASSIFY_PROMPT = """You are a router for a workspace assistant with four specia
   competitive?", "check upgrade terms and draft a follow-up if it makes
   sense", "what's changed with [competitor] and do our docs address it?").
 
-Respond with ONLY one word: rag, structuring, action, or research. Nothing else.
+Respond with ONLY one word: chat, rag, structuring, action, or research. Nothing else.
 """
 
-VALID_AGENT_TYPES = {"rag", "structuring", "action", "research"}
+VALID_AGENT_TYPES = {"chat", "rag", "structuring", "action", "research"}
 
 
 def classify_intent(query: str) -> str:
     """
-    Asks the LLM which agent should handle this query. Falls back to "rag"
-    if the model returns anything unexpected - answering a question badly
-    is a safer default than silently doing nothing, and far safer than
-    guessing "action" and proposing something nobody asked for.
+    Asks the LLM which agent should handle this query. Falls back to "chat"
+    if the model returns anything unexpected - a plain conversational reply
+    is a safer default than guessing "action" and proposing something
+    nobody asked for, or "rag" and returning a dead-end "not found" reply
+    to something that was never a document question.
     """
     llm = ChatGroq(
         model="llama-3.3-70b-versatile",
@@ -53,7 +60,7 @@ def classify_intent(query: str) -> str:
     )
 
     intent = response.content.strip().lower()
-    return intent if intent in VALID_AGENT_TYPES else "rag"
+    return intent if intent in VALID_AGENT_TYPES else "chat"
 
 
 def build_known_facts(structured_notes: list) -> str:
@@ -67,10 +74,14 @@ def build_known_facts(structured_notes: list) -> str:
         lines += [f"- DATE: {d}" for d in note.get("mentioned_dates", [])]
     return "\n".join(lines)
 
+
 def run_orchestrator(query, namespace=None, forced_type=None, history=None, structured_notes=None):
     intent = forced_type if forced_type in VALID_AGENT_TYPES else classify_intent(query)
     history = history or []
     known_facts = build_known_facts(structured_notes or [])
+
+    if intent == "chat":
+        return run_chat_agent(query, history=history, known_facts=known_facts)
 
     if intent == "rag":
         if not namespace:
@@ -84,7 +95,7 @@ def run_orchestrator(query, namespace=None, forced_type=None, history=None, stru
         return run_rag_agent(query, namespace, history=history, known_facts=known_facts)
 
     if intent == "structuring":
-        return run_structuring_agent(query)  # still excluded — this IS how notes get created, not consume them
+        return run_structuring_agent(query)
 
     if intent == "research":
         return run_research_agent(query, namespace, history=history, known_facts=known_facts)

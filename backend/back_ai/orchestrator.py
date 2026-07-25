@@ -56,21 +56,21 @@ def classify_intent(query: str) -> str:
     return intent if intent in VALID_AGENT_TYPES else "rag"
 
 
-def run_orchestrator(query: str, namespace: str = None, forced_type: str = None) -> dict:
-    """
-    Single entry point for the whole agent system. Classifies the query,
-    then dispatches to whichever agent matches - each agent already
-    returns the same shape (agentType, result, sources, requiresApproval,
-    toolCalls), so the orchestrator doesn't need to reshape anything,
-    just pick who answers.
+def build_known_facts(structured_notes: list) -> str:
+    """Flattens accumulated structured notes into one compact context block."""
+    if not structured_notes:
+        return ""
+    lines = ["Known facts already extracted from workspace documents:"]
+    for note in structured_notes:
+        lines += [f"- {p}" for p in note.get("key_points", [])]
+        lines += [f"- ACTION: {a}" for a in note.get("action_items", [])]
+        lines += [f"- DATE: {d}" for d in note.get("mentioned_dates", [])]
+    return "\n".join(lines)
 
-    If `forced_type` is provided, classification is skipped entirely and
-    the query is routed straight to that agent. This is for callers that
-    already know the intent with certainty from context (e.g. a
-    "structure this document" button), as opposed to freeform chat input
-    where intent genuinely needs to be inferred.
-    """
+def run_orchestrator(query, namespace=None, forced_type=None, history=None, structured_notes=None):
     intent = forced_type if forced_type in VALID_AGENT_TYPES else classify_intent(query)
+    history = history or []
+    known_facts = build_known_facts(structured_notes or [])
 
     if intent == "rag":
         if not namespace:
@@ -81,12 +81,12 @@ def run_orchestrator(query: str, namespace: str = None, forced_type: str = None)
                 "requiresApproval": False,
                 "toolCalls": None,
             }
-        return run_rag_agent(query, namespace)
+        return run_rag_agent(query, namespace, history=history, known_facts=known_facts)
 
     if intent == "structuring":
-        return run_structuring_agent(query)
+        return run_structuring_agent(query)  # still excluded — this IS how notes get created, not consume them
 
     if intent == "research":
-        return run_research_agent(query, namespace)
+        return run_research_agent(query, namespace, history=history, known_facts=known_facts)
 
-    return run_action_agent(query)
+    return run_action_agent(query, history=history, known_facts=known_facts)

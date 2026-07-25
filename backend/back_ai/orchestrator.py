@@ -5,8 +5,16 @@ from agents.rag_agent import run_rag_agent
 from agents.structuring_agent import run_structuring_agent
 from agents.action_agent import run_action_agent
 from agents.research_agent import run_research_agent
+from agents.chat_agent import run_chat_agent
 
-CLASSIFY_PROMPT = """You are a router for a workspace assistant with four specialist agents:
+CLASSIFY_PROMPT = """You are a router for a workspace assistant with five specialist agents.
+
+FIRST, check this rule: if the message is a greeting, thanks, small talk, or
+fewer than 4 words with no clear topic (e.g. "hi", "hello", "hey", "thanks",
+"ok", "test", "what's up"), respond with "chat" immediately. Do not consider
+the other categories for messages like this.
+
+Otherwise, classify into one of:
 
 - "rag": the user is asking a SIMPLE QUESTION answerable directly from documents
   already stored in their workspace (e.g. "what does our contract say about
@@ -19,26 +27,33 @@ CLASSIFY_PROMPT = """You are a router for a workspace assistant with four specia
 - "action": the user wants something DONE - a task created, an email sent,
   a meeting scheduled, etc.
 
-- "research": the question is COMPLEX or MIXED - it needs combining workspace
-  documents with outside web information, doing a calculation, chaining a
-  lookup into a proposed action, or the question is broad/ambiguous enough
-  that it's unclear which single source answers it (e.g. "is our pricing
-  competitive?", "check upgrade terms and draft a follow-up if it makes
-  sense", "what's changed with [competitor] and do our docs address it?").
+- "research": the question is COMPLEX and requires combining workspace
+  documents with outside web information, doing a calculation, or chaining
+  a lookup into a proposed action. Must reference an actual topic - never
+  use this for short or vague messages, those are "chat".
 
-Respond with ONLY one word: rag, structuring, action, or research. Nothing else.
+- "chat": anything else that's casual conversation or doesn't clearly fit
+  the categories above.
+
+Respond with ONLY one word: chat, rag, structuring, action, or research. Nothing else.
 """
 
-VALID_AGENT_TYPES = {"rag", "structuring", "action", "research"}
+VALID_AGENT_TYPES = {"chat", "rag", "structuring", "action", "research"}
 
 
 def classify_intent(query: str) -> str:
     """
-    Asks the LLM which agent should handle this query. Falls back to "rag"
-    if the model returns anything unexpected - answering a question badly
-    is a safer default than silently doing nothing, and far safer than
-    guessing "action" and proposing something nobody asked for.
+    Short-circuits obvious small talk / greetings without an LLM call -
+    Groq's classification isn't fully deterministic even at temperature=0,
+    so trivial cases like "hi" shouldn't depend on model judgment at all.
+    Falls back to "chat" for anything the LLM returns unexpectedly too.
     """
+    stripped = query.strip().lower()
+    GREETINGS = {"hi", "hello", "hey", "yo", "thanks", "thank you", "ok", "okay", "sup", "hiya"}
+
+    if stripped in GREETINGS or len(stripped.split()) <= 2:
+        return "chat"
+
     llm = ChatGroq(
         model="llama-3.3-70b-versatile",
         groq_api_key=os.environ.get("GROQ_API_KEY"),
@@ -53,10 +68,28 @@ def classify_intent(query: str) -> str:
     )
 
     intent = response.content.strip().lower()
-    return intent if intent in VALID_AGENT_TYPES else "rag"
+    return intent if intent in VALID_AGENT_TYPES else "chat"
 
 
-def run_orchestrator(query: str, namespace: str = None, forced_type: str = None) -> dict:
+def build_known_facts(structured_notes: list) -> str:
+    """Flattens accumulated structured notes into one compact context block."""
+    if not structured_notes:
+        return ""
+    lines = ["Known facts already extracted from workspace documents:"]
+    for note in structured_notes:
+        lines += [f"- {p}" for p in note.get("key_points", [])]
+        lines += [f"- ACTION: {a}" for a in note.get("action_items", [])]
+        lines += [f"- DATE: {d}" for d in note.get("mentioned_dates", [])]
+    return "\n".join(lines)
+
+
+def run_orchestrator(
+    query: str,
+    namespace: str = None,
+    forced_type: str = None,
+    history: list = None,
+    structured_notes: list = None,
+) -> dict:
     """
     Single entry point for the whole agent system. Classifies the query,
     then dispatches to whichever agent matches - each agent already
@@ -65,12 +98,14 @@ def run_orchestrator(query: str, namespace: str = None, forced_type: str = None)
     just pick who answers.
 
     If `forced_type` is provided, classification is skipped entirely and
-    the query is routed straight to that agent. This is for callers that
-    already know the intent with certainty from context (e.g. a
-    "structure this document" button), as opposed to freeform chat input
-    where intent genuinely needs to be inferred.
+    the query is routed straight to that agent.
     """
     intent = forced_type if forced_type in VALID_AGENT_TYPES else classify_intent(query)
+    history = history or []
+    known_facts = build_known_facts(structured_notes or [])
+
+    if intent == "chat":
+        return run_chat_agent(query, history=history, known_facts=known_facts)
 
     if intent == "rag":
         if not namespace:
@@ -81,12 +116,12 @@ def run_orchestrator(query: str, namespace: str = None, forced_type: str = None)
                 "requiresApproval": False,
                 "toolCalls": None,
             }
-        return run_rag_agent(query, namespace)
+        return run_rag_agent(query, namespace, history=history, known_facts=known_facts)
 
     if intent == "structuring":
         return run_structuring_agent(query)
 
     if intent == "research":
-        return run_research_agent(query, namespace)
+        return run_research_agent(query, namespace, history=history, known_facts=known_facts)
 
-    return run_action_agent(query)
+    return run_action_agent(query, history=history, known_facts=known_facts)

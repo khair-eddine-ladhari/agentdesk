@@ -9,21 +9,38 @@ const FROM_EMAIL = process.env.FROM_EMAIL || "noreply@yourapp.com";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8000";
 
+const ChatMessage = require("../models/ChatMessage");
+
 async function callAgent(req, res) {
   try {
     const { agentType, query } = req.body;
-    if (!agentType || !query) {
-      return res.status(400).json({ error: "agentType and query are required" });
+    if (!query) {
+      return res.status(400).json({ error: "query is required" });
     }
 
     const workspace = await Workspace.findById(req.workspaceId);
     if (!workspace) return res.status(404).json({ error: "Workspace not found" });
 
+    // Load recent conversation turns + accumulated structured knowledge
+    // so the agent has memory across the whole workspace, not just this call.
+    const recentMessages = await ChatMessage.find({ workspace: req.workspaceId })
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .then(msgs => msgs.reverse());
+
+    const history = recentMessages.map(m => ({ role: m.role, content: m.content }));
+
+    const structuredNotes = await StructuredNote.find({ workspace: req.workspaceId })
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .select("key_points action_items mentioned_dates");
+
     const payload = {
-      workspaceId: req.workspaceId,
-      pineconeNamespace: workspace.pineconeNamespace,
-      agentType,
       query,
+      namespace: workspace.pineconeNamespace, // field name must match Python's AgentRequest.namespace
+      agentType,                              // undefined is fine - Pydantic treats it as None, classifier runs
+      history,
+      structuredNotes,
     };
 
     const agentRes = await fetch(`${AGENT_SERVICE_URL}/agents/run`, {
@@ -38,39 +55,46 @@ async function callAgent(req, res) {
 
     const result = await agentRes.json();
 
-
-
     if (result.agentType === "structuring") {
-  const structured = JSON.parse(result.result);
-  await StructuredNote.create({
-    workspace: req.workspaceId,
-    createdBy: req.userId,
-    rawQuery: query,
-    key_points: structured.key_points || [],
-    action_items: structured.action_items || [],
-    mentioned_dates: structured.mentioned_dates || [],
-    parseError: structured._parse_error || null,
-  });
-}
+      const structured = JSON.parse(result.result);
+      await StructuredNote.create({
+        workspace: req.workspaceId,
+        createdBy: req.userId,
+        rawQuery: query,
+        key_points: structured.key_points || [],
+        action_items: structured.action_items || [],
+        mentioned_dates: structured.mentioned_dates || [],
+        parseError: structured._parse_error || null,
+      });
+    }
+
+    // Save this turn to conversation history for future memory.
+    await ChatMessage.create({ workspace: req.workspaceId, role: "user", content: query });
+    await ChatMessage.create({
+      workspace: req.workspaceId,
+      role: "assistant",
+      content: result.result,
+      agentType: result.agentType,
+    });
 
     // Every agent run gets logged - this is the owner-facing audit trail.
     // Action-type results default to requiresApproval=true (draft mode),
     // so nothing external fires without a human confirming first.
     const log = await ActionLog.create({
-  workspace: req.workspaceId,
-  agentType: result.agentType,
-  summary: result.result.slice(0, 200),
-  status: result.requiresApproval ? "needs_review" : "success",
-  requiresApproval: result.requiresApproval,
-  toolCalls: result.toolCalls,
-});
+      workspace: req.workspaceId,
+      agentType: result.agentType,
+      summary: result.result.slice(0, 200),
+      status: result.requiresApproval ? "needs_review" : "success",
+      requiresApproval: result.requiresApproval,
+      toolCalls: result.toolCalls,
+    });
 
     res.json({ ...result, logId: log._id });
   } catch (err) {
+    console.error("[callAgent] error:", err);
     res.status(500).json({ error: "Failed to reach agent service" });
   }
 }
-
 // Executors for each approvable tool. Each one takes the LLM-proposed
 // parameters PLUS the trusted, auth-derived workspaceId/userId - never
 // values pulled from the request body, so an approval request can never

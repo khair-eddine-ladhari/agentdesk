@@ -3,6 +3,7 @@ const fs = require("fs");
 const axios = require("axios"); // npm install axios if not already present
 const DocumentModel = require("../models/Document");
 const Workspace = require("../models/Workspace"); // adjust path if needed
+const StructuredNote = require("../models/StructuredNote"); // adjust path if needed
 
 const EXT_TO_TYPE = {
   ".txt": "txt",
@@ -58,6 +59,12 @@ async function uploadDocument(req, res) {
       return res.status(201).json({ ...doc.toObject(), note: "File was empty" });
     }
 
+    // Save the extracted text on the document itself so later steps
+    // (e.g. structuring) can reuse it without re-reading the file or
+    // trying to reconstruct it from Pinecone chunks.
+    doc.rawText = text;
+    await doc.save();
+
     // Chunking + embedding now lives entirely in the Python service -
     // Node just forwards plain text and the workspace's Pinecone
     // namespace, then updates status based on what comes back.
@@ -103,4 +110,70 @@ async function listDocuments(req, res) {
   }
 }
 
-module.exports = { uploadDocument, listDocuments };
+// POST /api/workspaces/:workspaceId/documents/:docId/structure
+// Takes the document's already-extracted text, runs it through the
+// structuring agent, and saves the structured result as a StructuredNote
+// linked back to this document.
+async function structureDocument(req, res) {
+  try {
+    const doc = await DocumentModel.findOne({
+      _id: req.params.docId,
+      workspace: req.workspaceId,
+    }).select("+rawText");
+
+    if (!doc) {
+      return res.status(404).json({ error: "Document not found" });
+    }
+
+    if (!doc.rawText) {
+      return res.status(400).json({
+        error: "No extracted text available for this document",
+        note: "Text extraction may not be implemented for this file type, or the file failed to embed.",
+      });
+    }
+
+    const workspace = await Workspace.findById(req.workspaceId);
+
+   const { data } = await axios.post(`${AI_SERVICE_URL}/agents/run`, {
+  query: doc.rawText,
+  namespace: workspace.pineconeNamespace,
+  agentType: "structuring",
+});
+
+    if (data.agentType !== "structuring") {
+      return res.status(502).json({
+        error: `Expected structuring result, got agentType "${data.agentType}"`,
+        note: "The orchestrator decided this text belongs to a different agent type based on its content.",
+        raw: data,
+      });
+    }
+
+    let structured;
+    try {
+      structured = JSON.parse(data.result);
+    } catch (parseErr) {
+      return res.status(502).json({
+        error: "Failed to parse structured result from AI service",
+        raw: data.result,
+      });
+    }
+
+    const note = await StructuredNote.create({
+      workspace: req.workspaceId,
+      createdBy: req.userId,
+      documentId: doc._id,
+      rawQuery: doc.rawText,
+      key_points: structured.key_points || [],
+      action_items: structured.action_items || [],
+      mentioned_dates: structured.mentioned_dates || [],
+      parseError: structured._parse_error || null,
+    });
+
+    res.status(201).json({ note });
+  } catch (err) {
+    console.error("[structureDocument] error:", err.response?.data || err.message);
+    res.status(500).json({ error: "Failed to structure document" });
+  }
+}
+
+module.exports = { uploadDocument, listDocuments, structureDocument };

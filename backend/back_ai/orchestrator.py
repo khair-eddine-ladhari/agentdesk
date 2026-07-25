@@ -56,15 +56,21 @@ def classify_intent(query: str) -> str:
     return intent if intent in VALID_AGENT_TYPES else "rag"
 
 
-def run_orchestrator(query: str, namespace: str = None) -> dict:
+def run_orchestrator(query: str, namespace: str = None, forced_type: str = None) -> dict:
     """
     Single entry point for the whole agent system. Classifies the query,
     then dispatches to whichever agent matches - each agent already
     returns the same shape (agentType, result, sources, requiresApproval,
     toolCalls), so the orchestrator doesn't need to reshape anything,
     just pick who answers.
+
+    If `forced_type` is provided, classification is skipped entirely and
+    the query is routed straight to that agent. This is for callers that
+    already know the intent with certainty from context (e.g. a
+    "structure this document" button), as opposed to freeform chat input
+    where intent genuinely needs to be inferred.
     """
-    intent = classify_intent(query)
+    intent = forced_type if forced_type in VALID_AGENT_TYPES else classify_intent(query)
 
     if intent == "rag":
         if not namespace:

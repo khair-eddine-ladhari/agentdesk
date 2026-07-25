@@ -22,9 +22,6 @@ app.add_middleware(
 )
 
 
-class AgentRequest(BaseModel):
-    query: str
-    namespace: str | None = None  # workspace id used to scope document retrieval
 
 
 class AgentResponse(BaseModel):
@@ -46,26 +43,19 @@ class IngestResponse(BaseModel):
     chunkCount: int
 
 
+class AgentRequest(BaseModel):
+    query: str
+    namespace: str | None = None
+    agentType: str | None = None  # optional override; skips classification when set
+
+
 @app.post("/agents/run", response_model=AgentResponse)
 def run_agent(payload: AgentRequest):
-    """
-    Single endpoint for the whole agent system. The Node backend has
-    already verified the request's JWT and resolved which workspace the
-    user belongs to before calling this - by the time a request lands
-    here, `namespace` is trusted, not user-suppliable-and-unchecked.
-
-    This service is read-only / side-effect-free by design: it only ever
-    proposes actions (toolCalls), it never executes them. There is no
-    database write anywhere in this file. Approving and actually
-    performing an action (creating a task, sending an email, etc.) is
-    Node's responsibility - see back_web's /agent/approve route - because
-    Node is the only layer with auth and workspace-scoping.
-    """
     if not payload.query or not payload.query.strip():
         raise HTTPException(status_code=400, detail="query must not be empty")
 
     try:
-        return run_orchestrator(payload.query, payload.namespace)
+        return run_orchestrator(payload.query, payload.namespace, forced_type=payload.agentType)
     except Exception as exc:
         print(f"[agents.run] error: {exc}")
         raise HTTPException(status_code=500, detail="Agent run failed") from exc

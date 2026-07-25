@@ -16,6 +16,7 @@ const structuredNoteSchema = new mongoose.Schema({
   parseError: { type: String, default: null },
 
   createdAt: { type: Date, default: Date.now },
+  documentId: { type: mongoose.Schema.Types.ObjectId, ref: "Document" },
 });
 
 module.exports = mongoose.model("StructuredNote", structuredNoteSchema);

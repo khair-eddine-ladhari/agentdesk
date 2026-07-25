@@ -7,6 +7,7 @@ const documentSchema = new mongoose.Schema(
     filename: { type: String, required: true },
     fileType: { type: String, enum: ["txt", "md", "pdf", "docx"], required: true },
     status: { type: String, enum: ["pending", "embedded", "failed"], default: "pending" },
+    rawText: { type: String, select: false }, // select:false keeps it out of normal find()/list responses
   },
   { timestamps: true }
 );

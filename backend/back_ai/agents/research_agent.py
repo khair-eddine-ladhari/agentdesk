@@ -23,6 +23,11 @@ the user. If a tool returns nothing useful, say so honestly rather than
 guessing. If the user's request implies an action should be taken, use
 propose_action rather than claiming you've done it yourself - you never
 execute anything directly.
+
+You may also be given recent conversation history and known facts already
+extracted from workspace documents. Use them to understand what the user
+is referring to, but still verify anything numeric or time-sensitive with
+a tool rather than trusting memory alone.
 """
 
 _llm = ChatGroq(
@@ -38,19 +43,29 @@ _agent = create_react_agent(
 )
 
 
-def run_research_agent(query: str, namespace: str = None) -> dict:
+def run_research_agent(query: str, namespace: str = None, history: list = None, known_facts: str = "") -> dict:
     """
     Runs the ReAct research agent, which decides for itself which tools
     (workspace docs, web search, calculator, action-proposal) it needs
     for this specific question, in whatever order/combination it reasons
-    is necessary.
+    is necessary. Recent conversation history and previously-extracted
+    workspace facts are injected into the message list so the agent has
+    the same context the other agents get, without changing its own
+    static system prompt.
     """
     full_query = query
     if namespace:
         full_query = f"{query}\n\n(workspace namespace: {namespace})"
 
+    messages = []
+    if known_facts:
+        messages.append(("system", known_facts))
+    for turn in (history or []):
+        messages.append((turn["role"], turn["content"]))
+    messages.append(("user", full_query))
+
     try:
-        result = _agent.invoke({"messages": [("user", full_query)]})
+        result = _agent.invoke({"messages": messages})
         final_message = result["messages"][-1].content
     except Exception as exc:
         final_message = f"The research agent hit an error: {exc}"

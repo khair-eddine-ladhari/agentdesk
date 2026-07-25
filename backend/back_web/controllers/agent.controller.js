@@ -9,15 +9,26 @@ const FROM_EMAIL = process.env.FROM_EMAIL || "noreply@yourapp.com";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8000";
 
+const ChatMessage = require("../models/ChatMessage");
+
 async function callAgent(req, res) {
+<<<<<<< HEAD
   const { query, agentType } = req.body;
   const workspace = await Workspace.findById(req.workspaceId);
+=======
+  try {
+    const { agentType, query } = req.body;
+    if (!query) {
+      return res.status(400).json({ error: "query is required" });
+    }
+>>>>>>> main
 
   const recentMessages = await ChatMessage.find({ workspace: req.workspaceId })
     .sort({ createdAt: -1 })
     .limit(10) // last 10 turns — tune based on token budget
     .then(msgs => msgs.reverse());
 
+<<<<<<< HEAD
   const history = recentMessages.map(m => ({ role: m.role, content: m.content }));
 
   const { data } = await axios.post(`${AI_SERVICE_URL}/agents/run`, {
@@ -36,8 +47,82 @@ async function callAgent(req, res) {
   });
 
   // ...existing ActionLog.create(...) stays as-is
-}
+=======
+    // Load recent conversation turns + accumulated structured knowledge
+    // so the agent has memory across the whole workspace, not just this call.
+    const recentMessages = await ChatMessage.find({ workspace: req.workspaceId })
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .then(msgs => msgs.reverse());
 
+    const history = recentMessages.map(m => ({ role: m.role, content: m.content }));
+
+    const structuredNotes = await StructuredNote.find({ workspace: req.workspaceId })
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .select("key_points action_items mentioned_dates");
+
+    const payload = {
+      query,
+      namespace: workspace.pineconeNamespace, // field name must match Python's AgentRequest.namespace
+      agentType,                              // undefined is fine - Pydantic treats it as None, classifier runs
+      history,
+      structuredNotes,
+    };
+
+    const agentRes = await fetch(`${AGENT_SERVICE_URL}/agents/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!agentRes.ok) {
+      return res.status(502).json({ error: "Agent service failed to respond" });
+    }
+
+    const result = await agentRes.json();
+
+    if (result.agentType === "structuring") {
+      const structured = JSON.parse(result.result);
+      await StructuredNote.create({
+        workspace: req.workspaceId,
+        createdBy: req.userId,
+        rawQuery: query,
+        key_points: structured.key_points || [],
+        action_items: structured.action_items || [],
+        mentioned_dates: structured.mentioned_dates || [],
+        parseError: structured._parse_error || null,
+      });
+    }
+
+    // Save this turn to conversation history for future memory.
+    await ChatMessage.create({ workspace: req.workspaceId, role: "user", content: query });
+    await ChatMessage.create({
+      workspace: req.workspaceId,
+      role: "assistant",
+      content: result.result,
+      agentType: result.agentType,
+    });
+
+    // Every agent run gets logged - this is the owner-facing audit trail.
+    // Action-type results default to requiresApproval=true (draft mode),
+    // so nothing external fires without a human confirming first.
+    const log = await ActionLog.create({
+      workspace: req.workspaceId,
+      agentType: result.agentType,
+      summary: result.result.slice(0, 200),
+      status: result.requiresApproval ? "needs_review" : "success",
+      requiresApproval: result.requiresApproval,
+      toolCalls: result.toolCalls,
+    });
+
+    res.json({ ...result, logId: log._id });
+  } catch (err) {
+    console.error("[callAgent] error:", err);
+    res.status(500).json({ error: "Failed to reach agent service" });
+  }
+>>>>>>> main
+}
 // Executors for each approvable tool. Each one takes the LLM-proposed
 // parameters PLUS the trusted, auth-derived workspaceId/userId - never
 // values pulled from the request body, so an approval request can never

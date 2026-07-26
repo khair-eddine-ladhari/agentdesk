@@ -12,15 +12,42 @@ const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:800
 const ChatMessage = require("../models/ChatMessage");
 
 async function callAgent(req, res) {
+<<<<<<< HEAD
+  const { query, agentType } = req.body;
+  const workspace = await Workspace.findById(req.workspaceId);
+=======
   try {
     const { agentType, query } = req.body;
     if (!query) {
       return res.status(400).json({ error: "query is required" });
     }
+>>>>>>> main
 
-    const workspace = await Workspace.findById(req.workspaceId);
-    if (!workspace) return res.status(404).json({ error: "Workspace not found" });
+  const recentMessages = await ChatMessage.find({ workspace: req.workspaceId })
+    .sort({ createdAt: -1 })
+    .limit(10) // last 10 turns — tune based on token budget
+    .then(msgs => msgs.reverse());
 
+<<<<<<< HEAD
+  const history = recentMessages.map(m => ({ role: m.role, content: m.content }));
+
+  const { data } = await axios.post(`${AI_SERVICE_URL}/agents/run`, {
+    query,
+    namespace: workspace.pineconeNamespace,
+    agentType, // undefined for normal chat, set for forced routes like /structure
+    history,
+  });
+
+  await ChatMessage.create({ workspace: req.workspaceId, role: "user", content: query });
+  await ChatMessage.create({
+    workspace: req.workspaceId,
+    role: "assistant",
+    content: data.result,
+    agentType: data.agentType,
+  });
+
+  // ...existing ActionLog.create(...) stays as-is
+=======
     // Load recent conversation turns + accumulated structured knowledge
     // so the agent has memory across the whole workspace, not just this call.
     const recentMessages = await ChatMessage.find({ workspace: req.workspaceId })
@@ -94,6 +121,7 @@ async function callAgent(req, res) {
     console.error("[callAgent] error:", err);
     res.status(500).json({ error: "Failed to reach agent service" });
   }
+>>>>>>> main
 }
 // Executors for each approvable tool. Each one takes the LLM-proposed
 // parameters PLUS the trusted, auth-derived workspaceId/userId - never

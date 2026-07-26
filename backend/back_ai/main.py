@@ -43,12 +43,21 @@ class IngestResponse(BaseModel):
     chunkCount: int
 
 
+class StructuredNoteSummary(BaseModel):
+    key_points: list[str] = []
+    action_items: list[str] = []
+    mentioned_dates: list[str] = []
+
 class AgentRequest(BaseModel):
     query: str
     namespace: str | None = None
-    agentType: str | None = None  # optional override; skips classification when set
+    agentType: str | None = None
+    history: list[ChatTurn] = []
+    structuredNotes: list[StructuredNoteSummary] = []
 
 
+
+    
 @app.post("/agents/run", response_model=AgentResponse)
 def run_agent(payload: AgentRequest):
     if not payload.query or not payload.query.strip():

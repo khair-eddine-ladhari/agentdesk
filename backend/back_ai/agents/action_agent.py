@@ -22,11 +22,14 @@ Respond with ONLY valid JSON in this exact shape, nothing else:
 
 If the request doesn't clearly map to a supported action, or is missing required
 info, use "action": "unknown" and explain what's missing in "summary". Never
-invent details (names, dates, emails) that weren't given to you.
+invent details (names, dates, emails) that weren't given to you. You may use
+conversation history and known workspace facts below to fill in details the
+user referenced but didn't repeat (e.g. "the demo we discussed" -> look up the
+date in known facts), but never invent anything not present in either.
 """
 
 
-def run_action_agent(query: str) -> dict:
+def run_action_agent(query: str, history: list = None, known_facts: str = "") -> dict:
     """
     Takes a natural-language request and asks the LLM to turn it into a
     structured, proposed action - not an executed one. This agent never
@@ -40,12 +43,16 @@ def run_action_agent(query: str) -> dict:
         temperature=0.1,  # low - this is structured planning, not creative writing
     )
 
-    response = llm.invoke(
-        [
-            ("system", SYSTEM_PROMPT),
-            ("user", query),
-        ]
-    )
+    system_content = SYSTEM_PROMPT
+    if known_facts:
+        system_content += f"\n\n{known_facts}"
+
+    messages = [("system", system_content)]
+    for turn in (history or []):
+        messages.append((turn["role"], turn["content"]))
+    messages.append(("user", query))
+
+    response = llm.invoke(messages)
 
     proposed = _parse_json_safely(response.content)
 

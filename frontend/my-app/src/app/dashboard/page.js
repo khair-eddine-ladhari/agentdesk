@@ -1,3 +1,4 @@
+import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import {
   CheckCircle2,
@@ -75,13 +76,13 @@ export default function DashboardPage() {
             <h2 className="text-sm font-medium text-ink">
               Needs your approval
             </h2>
-            
+            <Link
               href="/pending-actions"
               className="flex items-center gap-1 text-sm text-accent hover:text-accent-hover"
-            <a>
+            >
               View all
               <ArrowUpRight size={14} />
-            </a>
+            </Link>
           </div>
 
           <div className="space-y-3">
@@ -150,10 +151,10 @@ export default function DashboardPage() {
 
           <section>
             <h2 className="mb-3 text-sm font-medium text-ink">Quick access</h2>
-            
+            <Link
               href="/chat"
               className="flex items-center gap-3 rounded-card border border-border bg-surface p-4 shadow-soft transition-shadow hover:shadow-softHover"
-            <a>
+            >
               <div className="flex h-9 w-9 items-center justify-center rounded-control bg-accent-soft text-accent">
                 <MessageSquare size={17} />
               </div>
@@ -161,7 +162,7 @@ export default function DashboardPage() {
                 <p className="text-sm font-medium text-ink">Ask something</p>
                 <p className="text-xs text-muted">Open chat</p>
               </div>
-            </a>
+            </Link>
           </section>
         </div>
       </div>

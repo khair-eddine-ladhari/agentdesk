@@ -1,10 +1,12 @@
 const path = require("path");
 const fs = require("fs");
-const axios = require("axios"); // npm install axios if not already present
+const axios = require("axios");
+const pdfParse = require("pdf-parse");
 const DocumentModel = require("../models/Document");
-const Workspace = require("../models/Workspace"); // adjust path if needed
-const StructuredNote = require("../models/StructuredNote"); // adjust path if needed
+const Workspace = require("../models/Workspace");
+const StructuredNote = require("../models/StructuredNote");
 
+const mammoth = require("mammoth");
 const EXT_TO_TYPE = {
   ".txt": "txt",
   ".md": "md",
@@ -14,14 +16,25 @@ const EXT_TO_TYPE = {
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8000";
 
-// Only .txt/.md are readable as plain text right now. .pdf/.docx need a
-// parser library (pdf-parse / mammoth) - not implemented yet, so those
-// upload and save metadata fine, but stay "pending" rather than crashing.
-function extractText(filePath, fileType) {
+
+
+async function extractText(filePath, fileType) {
   if (fileType === "txt" || fileType === "md") {
     return fs.readFileSync(filePath, "utf-8");
   }
-  return null; // signals "can't extract yet" without throwing
+
+  if (fileType === "pdf") {
+    const buffer = fs.readFileSync(filePath);
+    const data = await pdfParse(buffer);
+    return data.text;
+  }
+
+  if (fileType === "docx") {
+    const result = await mammoth.extractRawText({ path: filePath });
+    return result.value;
+  }
+
+  return null;
 }
 
 async function uploadDocument(req, res) {
@@ -44,7 +57,19 @@ async function uploadDocument(req, res) {
       status: "pending",
     });
 
-    const text = extractText(req.file.path, fileType);
+    let text;
+    try {
+      text = await extractText(req.file.path, fileType);
+    } catch (extractErr) {
+      console.error(`[uploadDocument] extraction failed for doc ${doc._id}:`, extractErr.message);
+      doc.status = "failed";
+      await doc.save();
+      return res.status(201).json({
+        ...doc.toObject(),
+        note: "Text extraction failed - the file may be corrupted, encrypted, or a scanned image with no selectable text.",
+        detail: extractErr.message,
+      });
+    }
 
     if (text === null) {
       return res.status(201).json({
@@ -59,15 +84,9 @@ async function uploadDocument(req, res) {
       return res.status(201).json({ ...doc.toObject(), note: "File was empty" });
     }
 
-    // Save the extracted text on the document itself so later steps
-    // (e.g. structuring) can reuse it without re-reading the file or
-    // trying to reconstruct it from Pinecone chunks.
     doc.rawText = text;
     await doc.save();
 
-    // Chunking + embedding now lives entirely in the Python service -
-    // Node just forwards plain text and the workspace's Pinecone
-    // namespace, then updates status based on what comes back.
     try {
       const workspace = await Workspace.findById(req.workspaceId);
 
@@ -110,10 +129,6 @@ async function listDocuments(req, res) {
   }
 }
 
-// POST /api/workspaces/:workspaceId/documents/:docId/structure
-// Takes the document's already-extracted text, runs it through the
-// structuring agent, and saves the structured result as a StructuredNote
-// linked back to this document.
 async function structureDocument(req, res) {
   try {
     const doc = await DocumentModel.findOne({
@@ -134,16 +149,15 @@ async function structureDocument(req, res) {
 
     const workspace = await Workspace.findById(req.workspaceId);
 
-   const { data } = await axios.post(`${AI_SERVICE_URL}/agents/run`, {
-  query: doc.rawText,
-  namespace: workspace.pineconeNamespace,
-  agentType: "structuring",
-});
+    const { data } = await axios.post(`${AI_SERVICE_URL}/agents/run`, {
+      query: doc.rawText,
+      namespace: workspace.pineconeNamespace,
+      agentType: "structuring",
+    });
 
     if (data.agentType !== "structuring") {
       return res.status(502).json({
         error: `Expected structuring result, got agentType "${data.agentType}"`,
-        note: "The orchestrator decided this text belongs to a different agent type based on its content.",
         raw: data,
       });
     }
@@ -171,7 +185,7 @@ async function structureDocument(req, res) {
 
     res.status(201).json({ note });
   } catch (err) {
-    console.error("[structureDocument] error:", err.response?.data || err.message);
+    console.error("[structureDocument] error:", err);
     res.status(500).json({ error: "Failed to structure document" });
   }
 }

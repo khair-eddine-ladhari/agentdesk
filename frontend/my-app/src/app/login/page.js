@@ -2,40 +2,39 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import axios from "axios";
+import { useContext } from "react";
 import { ArrowLeft, Loader2 } from "lucide-react";
-
+import { GlobalContext } from "../../components/GlobalContext";
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
 export default function LoginPage() {
-  const router = useRouter();
-  const [form, setForm] = useState({ email: "", password: "" });
-  const [error, setError] = useState("");
+ const [form, setForm] = useState({ email: "", password: "" });
+
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const { login } = useContext(GlobalContext);
 
-  function handleChange(e) {
-    setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
-  }
-
-  async function handleSubmit(e) {
-    e.preventDefault();
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
     setError("");
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
     setLoading(true);
+    setError("");
 
     try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
+      const res = await axios.post(`${API_URL}/api/auth/login`, form);
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.message || "Couldn't log you in. Check your details and try again.");
-      }
-
-      router.push("/dashboard");
-    } catch (err) {
-      setError(err.message);
+      sessionStorage.setItem("adminToken", res.data.token);
+      // Fixed order: update auth context BEFORE navigating away —
+      // window.location.href triggers a full page navigation, so any
+      // code after it is unlikely to execute.
+      login(res.data.user);
+      window.location.href = "/dashboard";
+    } catch (error) {
+      setError(error.response?.data?.message || "Authentication failed");
     } finally {
       setLoading(false);
     }

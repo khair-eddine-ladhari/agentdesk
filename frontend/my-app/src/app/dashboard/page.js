@@ -1,61 +1,96 @@
+"use client";
+
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import AppShell from "@/components/AppShell";
+import axios from "axios";
 import {
-  CheckCircle2,
-  Clock,
+  Users,
   FileText,
+  CheckSquare,
+  CalendarClock,
   ArrowUpRight,
   MessageSquare,
+  Loader2,
 } from "lucide-react";
+import AppShell from "@/components/AppShell";
 
-// Placeholder data — swap for real fetches later
-const STATS = [
-  { label: "Pending approval", value: 3, icon: Clock },
-  { label: "Approved this week", value: 12, icon: CheckCircle2 },
-  { label: "Documents processed", value: 28, icon: FileText },
-];
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
-const PENDING_ACTIONS = [
-  {
-    id: "1",
-    title: "Send follow-up email to Acme Corp re: Q3 contract",
-    source: "From: contract-notes.docx",
-    agent: "Email Agent",
-    time: "12 min ago",
-  },
-  {
-    id: "2",
-    title: "Create 4 tasks in project tracker from meeting notes",
-    source: "From: standup-2026-07-25.txt",
-    agent: "Task Agent",
-    time: "1 hour ago",
-  },
-  {
-    id: "3",
-    title: "Update client record with new billing address",
-    source: "From: chat conversation",
-    agent: "CRM Agent",
-    time: "3 hours ago",
-  },
-];
-
-const RECENT_ACTIVITY = [
-  { id: "a1", text: "Approved: Schedule kickoff call with Beta LLC", time: "Yesterday, 4:12 PM" },
-  { id: "a2", text: "Rejected: Delete stale lead from CRM", time: "Yesterday, 2:03 PM" },
-  { id: "a3", text: "Approved: Draft proposal summary for Nova Inc.", time: "Yesterday, 11:45 AM" },
+const STAT_CONFIG = [
+  { key: "userCount", label: "Users", icon: Users },
+  { key: "documentCount", label: "Documents", icon: FileText },
+  { key: "taskCount", label: "Tasks", icon: CheckSquare },
+  { key: "meetingCount", label: "Meetings", icon: CalendarClock },
 ];
 
 export default function DashboardPage() {
+  const [stats, setStats] = useState(null);
+  const [pendingActions, setPendingActions] = useState([]);
+  const [recentActivity, setRecentActivity] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    async function fetchDashboard() {
+      setLoading(true);
+      setError("");
+      const token = sessionStorage.getItem("adminToken");
+      const headers = { Authorization: `Bearer ${token}` };
+
+      try {
+        const [statsRes, actionsRes, activityRes] = await Promise.all([
+          axios.get(`${API_URL}/dashboard/stats`, { headers }),
+          axios.get(`${API_URL}/actions/pending?limit=3`, { headers }),
+          axios.get(`${API_URL}/audit-log/recent?limit=3`, { headers }),
+        ]);
+
+        setStats(statsRes.data);
+        setPendingActions(actionsRes.data);
+        setRecentActivity(activityRes.data);
+      } catch (err) {
+        setError(
+          err.response?.data?.message || "Couldn't load your dashboard. Try refreshing."
+        );
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchDashboard();
+  }, []);
+
+  if (loading) {
+    return (
+      <AppShell title="Dashboard">
+        <div className="flex h-64 items-center justify-center">
+          <Loader2 size={20} className="animate-spin text-muted" />
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (error) {
+    return (
+      <AppShell title="Dashboard">
+        <div className="mx-auto max-w-5xl">
+          <p className="rounded-card border border-danger/20 bg-danger-soft px-4 py-3 text-sm text-danger">
+            {error}
+          </p>
+        </div>
+      </AppShell>
+    );
+  }
+
   return (
-    <AppShell title="Dashboard" pendingCount={PENDING_ACTIONS.length}>
+    <AppShell title="Dashboard" pendingCount={pendingActions.length}>
       <div className="mx-auto max-w-5xl space-y-8">
         {/* Stats row */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          {STATS.map((stat) => {
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {STAT_CONFIG.map((stat) => {
             const Icon = stat.icon;
             return (
               <div
-                key={stat.label}
+                key={stat.key}
                 className="rounded-card border border-border bg-surface p-5 shadow-soft"
               >
                 <div className="flex items-center justify-between">
@@ -63,14 +98,14 @@ export default function DashboardPage() {
                   <Icon size={16} className="text-accent" strokeWidth={2} />
                 </div>
                 <div className="mt-2 text-2xl font-semibold text-ink">
-                  {stat.value}
+                  {stats?.[stat.key] ?? 0}
                 </div>
               </div>
             );
           })}
         </div>
 
-        {/* Pending actions — the hero of this screen */}
+        {/* Pending actions */}
         <section>
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-medium text-ink">
@@ -85,45 +120,53 @@ export default function DashboardPage() {
             </Link>
           </div>
 
-          <div className="space-y-3">
-            {PENDING_ACTIONS.map((action) => (
-              <div
-                key={action.id}
-                className="rounded-card border border-border bg-surface p-4 shadow-soft transition-shadow hover:shadow-softHover"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-ink">
-                      {action.title}
-                    </p>
-                    <div className="mt-1 flex items-center gap-2 text-xs text-muted">
-                      <span className="rounded-pill bg-accent-soft px-2 py-0.5 text-accent">
-                        {action.agent}
-                      </span>
-                      <span>{action.source}</span>
-                      <span>·</span>
-                      <span>{action.time}</span>
+          {pendingActions.length === 0 ? (
+            <div className="rounded-card border border-border bg-surface p-8 text-center shadow-soft">
+              <p className="text-sm text-muted">
+                Nothing waiting on you right now.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {pendingActions.map((action) => (
+                <div
+                  key={action.id}
+                  className="rounded-card border border-border bg-surface p-4 shadow-soft transition-shadow hover:shadow-softHover"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-ink">
+                        {action.title}
+                      </p>
+                      <div className="mt-1 flex items-center gap-2 text-xs text-muted">
+                        <span className="rounded-pill bg-accent-soft px-2 py-0.5 text-accent">
+                          {action.agent}
+                        </span>
+                        <span>{action.source}</span>
+                        <span>·</span>
+                        <span>{action.time}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button
+                        type="button"
+                        className="rounded-pill border border-border px-3 py-1.5 text-xs font-medium text-muted hover:bg-bg"
+                      >
+                        Reject
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-pill bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover"
+                      >
+                        Approve
+                      </button>
                     </div>
                   </div>
-
-                  <div className="flex shrink-0 items-center gap-2">
-                    <button
-                      type="button"
-                      className="rounded-pill border border-border px-3 py-1.5 text-xs font-medium text-muted hover:bg-bg"
-                    >
-                      Reject
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-pill bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover"
-                    >
-                      Approve
-                    </button>
-                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </section>
 
         {/* Recent activity + quick chat access */}
@@ -132,21 +175,27 @@ export default function DashboardPage() {
             <h2 className="mb-3 text-sm font-medium text-ink">
               Recent activity
             </h2>
-            <div className="rounded-card border border-border bg-surface shadow-soft">
-              {RECENT_ACTIVITY.map((item, i) => (
-                <div
-                  key={item.id}
-                  className={`flex items-center justify-between px-4 py-3 text-sm ${
-                    i !== RECENT_ACTIVITY.length - 1 ? "border-b border-border" : ""
-                  }`}
-                >
-                  <span className="text-ink">{item.text}</span>
-                  <span className="shrink-0 text-xs text-muted">
-                    {item.time}
-                  </span>
-                </div>
-              ))}
-            </div>
+            {recentActivity.length === 0 ? (
+              <div className="rounded-card border border-border bg-surface p-8 text-center shadow-soft">
+                <p className="text-sm text-muted">Nothing logged yet.</p>
+              </div>
+            ) : (
+              <div className="rounded-card border border-border bg-surface shadow-soft">
+                {recentActivity.map((item, i) => (
+                  <div
+                    key={item.id}
+                    className={`flex items-center justify-between px-4 py-3 text-sm ${
+                      i !== recentActivity.length - 1 ? "border-b border-border" : ""
+                    }`}
+                  >
+                    <span className="text-ink">{item.text}</span>
+                    <span className="shrink-0 text-xs text-muted">
+                      {item.time}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
 
           <section>

@@ -10,6 +10,7 @@ function signToken(userId) {
 async function register(req, res) {
   
   try {
+    console.log("LOGIN BODY:", req.body);
     const { name, email, password } = req.body;
     if (!name || !email || !password) {
       return res.status(400).json({ error: "name, email, and password are required" });
@@ -35,6 +36,8 @@ async function register(req, res) {
 
 async function login(req, res) {
   try {
+
+    
     const { email, password } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: "email and password are required" });

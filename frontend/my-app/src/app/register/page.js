@@ -4,7 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Loader2 } from "lucide-react";
-
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
+console.log("API_URL =", API_URL);
 export default function RegisterPage() {
   const router = useRouter();
   const [form, setForm] = useState({
@@ -36,8 +37,10 @@ export default function RegisterPage() {
 
     setLoading(true);
 
+    
+
     try {
-      const res = await fetch("/api/auth/register", {
+      const res = await fetch(`${API_URL}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -16,7 +16,10 @@ const documentRoutes = require("./routes/document.routes");
 const app = express();
 
 app.use(helmet());
-app.use(cors({ origin: process.env.CLIENT_URL || "http://localhost:5173" }));
+app.use(cors({
+  origin: "http://localhost:3000",
+  credentials: true
+}));
 app.use(express.json());
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }));

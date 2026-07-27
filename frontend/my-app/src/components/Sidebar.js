@@ -69,18 +69,19 @@ export default function Sidebar({ pendingCount = 0, workspaceName = "Acme Inc." 
       </nav>
 
       {/* Bottom: settings */}
+     {/* Bottom: settings */}
       <div className="border-t border-border px-3 py-3">
-        <Link
-          href="/settings"
-          className={`flex items-center gap-2.5 rounded-control px-3 py-2 text-sm transition-colors ${
-            pathname === "/settings"
-              ? "bg-accent-soft font-medium text-accent"
-              : "text-muted hover:bg-bg hover:text-ink"
-          }`}
-        >
-          <Settings size={17} strokeWidth={2} />
-          Settings
-        </Link>
+       <Link
+  href="/settings/workspace"
+  className={`flex items-center gap-2.5 rounded-control px-3 py-2 text-sm transition-colors ${
+    pathname.startsWith("/settings")
+      ? "bg-accent-soft font-medium text-accent"
+      : "text-muted hover:bg-bg hover:text-ink"
+  }`}
+>
+  <Settings size={17} strokeWidth={2} />
+  Settings
+</Link>
       </div>
     </aside>
   );

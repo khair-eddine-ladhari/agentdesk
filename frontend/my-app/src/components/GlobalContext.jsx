@@ -1,31 +1,60 @@
+"use client";
 
-
-"use client"; // required: useState, useEffect, sessionStorage, context provider wrapping the app
-
-import { createContext, useState, useEffect } from "react";
+import { createContext, useEffect, useState } from "react";
+import axios from "axios";
 
 export const GlobalContext = createContext();
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 export default function GlobalState({ children }) {
   const [user, setUser] = useState(null);
+  const [workspace, setWorkspace] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = sessionStorage.getItem("adminToken");
-    if (!token) return;
+    const initialize = async () => {
+      const token = sessionStorage.getItem("adminToken");
 
-    try {
-      const payload = JSON.parse(atob(token.split(".")[1]));
-
-      if (payload.exp * 1000 < Date.now()) {
-        sessionStorage.removeItem("adminToken");
+      if (!token) {
+        setLoading(false);
         return;
       }
 
-      setUser({ id: payload.id, role: payload.role });
-    } catch (err) {
-      sessionStorage.removeItem("adminToken");
-    }
+      try {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+
+        // Token expired
+        if (payload.exp * 1000 < Date.now()) {
+          sessionStorage.removeItem("adminToken");
+          setLoading(false);
+          return;
+        }
+
+        setUser({
+          id: payload.userId,
+        });
+
+        // Load the user's workspaces
+        const res = await axios.get(`${API_URL}/workspaces`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (res.data.length > 0) {
+          setWorkspace(res.data[0]);
+        }
+
+      } catch (err) {
+        console.error(err);
+        sessionStorage.removeItem("adminToken");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initialize();
   }, []);
 
   const login = (userData) => {
@@ -34,12 +63,22 @@ export default function GlobalState({ children }) {
   };
 
   const logout = () => {
-    setUser(null);
     sessionStorage.removeItem("adminToken");
+    setUser(null);
+    setWorkspace(null);
   };
 
   return (
-    <GlobalContext.Provider value={{ user, login, logout }}>
+    <GlobalContext.Provider
+      value={{
+        user,
+        workspace,
+        loading,
+        login,
+        logout,
+        setWorkspace,
+      }}
+    >
       {children}
     </GlobalContext.Provider>
   );

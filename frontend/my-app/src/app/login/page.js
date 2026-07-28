@@ -25,7 +25,7 @@ export default function LoginPage() {
     setError("");
 
     try {
-      const res = await axios.post(`${API_URL}/api/auth/login`, form);
+      const res = await axios.post(`${API_URL}/auth/login`, form);
 
       sessionStorage.setItem("adminToken", res.data.token);
       // Fixed order: update auth context BEFORE navigating away —

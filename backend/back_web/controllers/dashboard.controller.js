@@ -4,6 +4,7 @@ const Task = require("../models/Task");
 const Meeting = require("../models/Meeting");
 const ChatMessage = require("../models/ChatMessage");
 
+const PREVIEW_LIMIT = 3; // how many recent items to show inside each dashboard box
 
 async function getDashboardStats(req, res) {
   try {
@@ -15,42 +16,49 @@ async function getDashboardStats(req, res) {
       });
     }
 
-
     const [
       userCount,
       documentCount,
       taskCount,
       meetingCount,
       messageCount,
+      recentTasks,
+      recentDocuments,
+      recentMeetings,
+      recentMessages,
     ] = await Promise.all([
+      // Counts - unchanged
+      User.countDocuments({ workspaces: workspaceId }),
+      Document.countDocuments({ workspace: workspaceId }),
+      Task.countDocuments({ workspace: workspaceId }),
+      Meeting.countDocuments({ workspace: workspaceId }),
+      ChatMessage.countDocuments({ workspace: workspaceId }),
 
-      // Users in this workspace
-      User.countDocuments({
-        workspaces: workspaceId,
-      }),
+      // Previews - just enough fields to render a compact list, not full documents
+      Task.find({ workspace: workspaceId })
+        .sort({ createdAt: -1 })
+        .limit(PREVIEW_LIMIT)
+        .select("title status assignee dueDate")
+        .lean(),
 
-      // Documents belonging to this workspace
-      Document.countDocuments({
-        workspace: workspaceId,
-      }),
+      Document.find({ workspace: workspaceId })
+        .sort({ createdAt: -1 })
+        .limit(PREVIEW_LIMIT)
+        .select("filename")
+        .lean(),
 
-      // Tasks belonging to this workspace
-      Task.countDocuments({
-        workspace: workspaceId,
-      }),
+      Meeting.find({ workspace: workspaceId })
+        .sort({ createdAt: -1 })
+        .limit(PREVIEW_LIMIT)
+        .select("title time attendees")
+        .lean(),
 
-      // Meetings belonging to this workspace
-      Meeting.countDocuments({
-        workspace: workspaceId,
-      }),
-
-      // Messages belonging to this workspace
-      ChatMessage.countDocuments({
-        workspace: workspaceId,
-      }),
-
+      ChatMessage.find({ workspace: workspaceId })
+        .sort({ createdAt: -1 })
+        .limit(PREVIEW_LIMIT)
+        .select("content role")
+        .lean(),
     ]);
-
 
     res.json({
       userCount,
@@ -58,9 +66,13 @@ async function getDashboardStats(req, res) {
       taskCount,
       meetingCount,
       messageCount,
+      previews: {
+        tasks: recentTasks,
+        documents: recentDocuments,
+        meetings: recentMeetings,
+        messages: recentMessages,
+      },
     });
-
-
   } catch (err) {
     console.error("Dashboard stats error:", err);
 
@@ -69,6 +81,5 @@ async function getDashboardStats(req, res) {
     });
   }
 }
-
 
 module.exports = { getDashboardStats };

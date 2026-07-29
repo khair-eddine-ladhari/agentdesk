@@ -43,6 +43,10 @@ class IngestResponse(BaseModel):
     chunkCount: int
 
 
+class ChatTurn(BaseModel):
+    role: str      # "user" or "assistant"
+    content: str
+
 class StructuredNoteSummary(BaseModel):
     key_points: list[str] = []
     action_items: list[str] = []
@@ -54,8 +58,6 @@ class AgentRequest(BaseModel):
     agentType: str | None = None
     history: list[ChatTurn] = []
     structuredNotes: list[StructuredNoteSummary] = []
-
-
 
     
 @app.post("/agents/run", response_model=AgentResponse)

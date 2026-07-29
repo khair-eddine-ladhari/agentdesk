@@ -4,9 +4,11 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import { Loader2, LogOut } from "lucide-react";
+import { useGlobalContext } from "@/components/GlobalContext";
 
 export default function AccountSettingsPage() {
   const router = useRouter();
+  const { user, logout } = useGlobalContext();
 
   const [profile, setProfile] = useState({
     name: "Jordan Blake",
@@ -63,11 +65,10 @@ export default function AccountSettingsPage() {
     }
   }
 
-  async function handleLogout() {
-    setLoggingOut(true);
-    // TODO: POST /api/auth/logout
-    await new Promise((r) => setTimeout(r, 300));
-    router.push("/login");
+ async function handleLogout() {
+   
+    await logout(); // clears sessionStorage + resets user/workspace in context
+    router.push("/");
   }
 
   return (

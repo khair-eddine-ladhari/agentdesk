@@ -5,7 +5,7 @@ import Link from "next/link";
 import axios from "axios";
 import { useContext } from "react";
 import { ArrowLeft, Loader2 } from "lucide-react";
-import { GlobalContext } from "../../components/GlobalContext";
+import { GlobalContext } from "../../../components/GlobalContext";
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 export default function LoginPage() {
  const [form, setForm] = useState({ email: "", password: "" });

@@ -1,7 +1,12 @@
+"use client";
+
 import Link from "next/link";
 import { ArrowUpRight, FileText, CheckCircle2, ShieldCheck } from "lucide-react";
+import { useGlobalContext } from "@/components/GlobalContext";
 
 export default function HomePage() {
+  const { user, loading } = useGlobalContext();
+
   return (
     <div className="min-h-screen bg-bg text-ink">
       {/* Header */}
@@ -10,18 +15,29 @@ export default function HomePage() {
           AgentDesk
         </span>
         <nav className="flex items-center gap-3">
-          <Link
-            href="/login"
-            className="px-4 py-2 text-sm font-medium text-ink/80 hover:text-ink transition-colors"
-          >
-            Log in
-          </Link>
-          <Link
-            href="/register"
-            className="px-4 py-2 text-sm font-medium rounded-pill bg-accent text-white hover:bg-accent-hover transition-colors"
-          >
-            Get started
-          </Link>
+          {loading ? null : user ? (
+            <Link
+              href="/dashboard"
+              className="px-4 py-2 text-sm font-medium rounded-pill bg-accent text-white hover:bg-accent-hover transition-colors"
+            >
+              Go to dashboard
+            </Link>
+          ) : (
+            <>
+              <Link
+                href="/login"
+                className="px-4 py-2 text-sm font-medium text-ink/80 hover:text-ink transition-colors"
+              >
+                Log in
+              </Link>
+              <Link
+                href="/register"
+                className="px-4 py-2 text-sm font-medium rounded-pill bg-accent text-white hover:bg-accent-hover transition-colors"
+              >
+                Get started
+              </Link>
+            </>
+          )}
         </nav>
       </header>
 
@@ -45,19 +61,31 @@ export default function HomePage() {
               off by a human before it runs.
             </p>
             <div className="flex items-center gap-4">
-              <Link
-                href="/register"
-                className="inline-flex items-center gap-2 px-5 py-3 rounded-pill bg-accent text-white text-sm font-medium hover:bg-accent-hover transition-colors"
-              >
-                Create your workspace
-                <ArrowUpRight size={16} />
-              </Link>
-              <Link
-                href="/login"
-                className="text-sm font-medium text-ink/80 hover:text-ink transition-colors"
-              >
-                I already have an account
-              </Link>
+              {loading ? null : user ? (
+                <Link
+                  href="/homepage"
+                  className="inline-flex items-center gap-2 px-5 py-3 rounded-pill bg-accent text-white text-sm font-medium hover:bg-accent-hover transition-colors"
+                >
+                  Go to dashboard
+                  <ArrowUpRight size={16} />
+                </Link>
+              ) : (
+                <>
+                  <Link
+                    href="/register"
+                    className="inline-flex items-center gap-2 px-5 py-3 rounded-pill bg-accent text-white text-sm font-medium hover:bg-accent-hover transition-colors"
+                  >
+                    Create your workspace
+                    <ArrowUpRight size={16} />
+                  </Link>
+                  <Link
+                    href="/login"
+                    className="text-sm font-medium text-ink/80 hover:text-ink transition-colors"
+                  >
+                    I already have an account
+                  </Link>
+                </>
+              )}
             </div>
           </div>
 

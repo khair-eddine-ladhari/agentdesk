@@ -22,7 +22,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL;
 // previewKey: which array in stats.previews this card should show.
 // previewLabel(item): how to render one preview row as a short line of text.
 const STAT_CONFIG = [
-  { key: "userCount", label: "Users", icon: Users, href: "/users" },
+  { key: "userCount", label: "Users", icon: Users, href: "/settings/workspace" },
   {
     key: "documentCount",
     label: "Documents",
@@ -35,7 +35,7 @@ const STAT_CONFIG = [
     key: "taskCount",
     label: "Tasks",
     icon: CheckSquare,
-    href: "/tasks",
+    href: "/structured-notes",
     previewKey: "tasks",
     previewLabel: (task) => task.title,
   },
@@ -43,7 +43,7 @@ const STAT_CONFIG = [
     key: "meetingCount",
     label: "Meetings",
     icon: CalendarClock,
-    href: "/meetings",
+    href: "/structured-notes",
     previewKey: "meetings",
     previewLabel: (meeting) => meeting.title,
   },

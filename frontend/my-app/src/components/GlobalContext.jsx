@@ -1,9 +1,15 @@
 "use client";
 
-import { createContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import axios from "axios";
 
 export const GlobalContext = createContext();
+
+// Convenience hook - same as `useContext(GlobalContext)`, just shorter to
+// call from every component that needs user/workspace/loading.
+export function useGlobalContext() {
+  return useContext(GlobalContext);
+}
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 

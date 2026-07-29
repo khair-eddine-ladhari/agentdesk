@@ -4,11 +4,13 @@ import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Bell, Search, User, LogOut } from "lucide-react";
+import { useGlobalContext } from "@/components/GlobalContext";
 
-export default function TopBar({ title, user = { name: "Khaireddine Ladhari", initials: "KL" } }) {
+export default function TopBar({ title }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const router = useRouter();
+  const { user, logout } = useGlobalContext();
 
   useEffect(() => {
     function handleClickOutside(e) {
@@ -20,10 +22,22 @@ export default function TopBar({ title, user = { name: "Khaireddine Ladhari", in
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // Derive initials from the real user's name, since GlobalContext doesn't
+  // store them separately.
+  const displayName = user?.name || "Account";
+  const initials = user?.name
+    ? user.name
+        .split(" ")
+        .map((part) => part[0])
+        .join("")
+        .slice(0, 2)
+        .toUpperCase()
+    : "?";
+
   async function handleLogout() {
-    // TODO: POST /api/auth/logout
     setMenuOpen(false);
-    router.push("/login");
+    await logout(); // clears sessionStorage + resets user/workspace in context
+    router.push("/");
   }
 
   return (
@@ -55,13 +69,13 @@ export default function TopBar({ title, user = { name: "Khaireddine Ladhari", in
             aria-expanded={menuOpen}
             className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-xs font-medium text-white"
           >
-            {user.initials}
+            {initials}
           </button>
 
           {menuOpen && (
             <div className="absolute right-0 top-10 w-48 rounded-card border border-border bg-surface py-1.5 shadow-softHover">
               <div className="border-b border-border px-3.5 py-2.5">
-                <p className="truncate text-sm font-medium text-ink">{user.name}</p>
+                <p className="truncate text-sm font-medium text-ink">{displayName}</p>
               </div>
 
               <Link

@@ -1,4 +1,5 @@
 import os
+import time
 from langchain_groq import ChatGroq
 from langgraph.prebuilt import create_react_agent
 from tools.agent_lang_graph_tools.query_workspace_docs import query_workspace_docs
@@ -6,29 +7,7 @@ from tools.agent_lang_graph_tools.search_web import search_web
 from tools.agent_lang_graph_tools.calculate import calculate
 from tools.agent_lang_graph_tools.propose_action import propose_action
 
-SYSTEM_PROMPT = """You are a research assistant for a business workspace.
-
-You have four tools available:
-- query_workspace_docs: search the workspace's own stored documents
-- search_web: search the web for external/current information
-- calculate: perform deterministic math on numbers you already have
-- propose_action: draft a proposed task/email/meeting (never executes anything)
-
-Reason step by step about which tools this question actually needs - not
-every question needs every tool. Combine tools when the question genuinely
-requires it (e.g. comparing a workspace figure to a web-sourced figure).
-
-Never invent numbers, names, or facts not returned by a tool or given by
-the user. If a tool returns nothing useful, say so honestly rather than
-guessing. If the user's request implies an action should be taken, use
-propose_action rather than claiming you've done it yourself - you never
-execute anything directly.
-
-You may also be given recent conversation history and known facts already
-extracted from workspace documents. Use them to understand what the user
-is referring to, but still verify anything numeric or time-sensitive with
-a tool rather than trusting memory alone.
-"""
+SYSTEM_PROMPT = """... (unchanged) ..."""
 
 _llm = ChatGroq(
     model="llama-3.3-70b-versatile",
@@ -43,16 +22,29 @@ _agent = create_react_agent(
 )
 
 
+def _invoke_agent_with_retry(messages, max_attempts=3, backoff_seconds=1.0):
+    """
+    Groq's tool-calling occasionally emits malformed function-call syntax
+    (tool_use_failed, HTTP 400) even at temperature=0 - it's a generation
+    glitch, not a logic error, and retrying the same input often succeeds.
+    Only retries on that specific failure mode; anything else re-raises
+    immediately so real errors aren't hidden behind pointless retries.
+    """
+    last_exc = None
+    for attempt in range(max_attempts):
+        try:
+            return _agent.invoke({"messages": messages})
+        except Exception as exc:
+            is_tool_use_failure = "tool_use_failed" in str(exc) or "Failed to call a function" in str(exc)
+            if not is_tool_use_failure:
+                raise
+            last_exc = exc
+            if attempt < max_attempts - 1:
+                time.sleep(backoff_seconds * (attempt + 1))
+    raise last_exc
+
+
 def run_research_agent(query: str, namespace: str = None, history: list = None, known_facts: str = "") -> dict:
-    """
-    Runs the ReAct research agent, which decides for itself which tools
-    (workspace docs, web search, calculator, action-proposal) it needs
-    for this specific question, in whatever order/combination it reasons
-    is necessary. Recent conversation history and previously-extracted
-    workspace facts are injected into the message list so the agent has
-    the same context the other agents get, without changing its own
-    static system prompt.
-    """
     full_query = query
     if namespace:
         full_query = f"{query}\n\n(workspace namespace: {namespace})"
@@ -65,10 +57,16 @@ def run_research_agent(query: str, namespace: str = None, history: list = None, 
     messages.append(("user", full_query))
 
     try:
-        result = _agent.invoke({"messages": messages})
+        result = _invoke_agent_with_retry(messages)
         final_message = result["messages"][-1].content
     except Exception as exc:
-        final_message = f"The research agent hit an error: {exc}"
+        if "tool_use_failed" in str(exc) or "Failed to call a function" in str(exc):
+            final_message = (
+                "I had trouble using my tools to answer that just now - could you "
+                "try rephrasing the question, or ask again in a moment?"
+            )
+        else:
+            final_message = "The research agent hit an error and couldn't complete this request."
 
     return {
         "agentType": "research",

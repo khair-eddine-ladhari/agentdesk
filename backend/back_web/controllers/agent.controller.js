@@ -215,4 +215,29 @@ async function approveAction(req, res) {
   }
 }
 
-module.exports = { callAgent, approveAction };
+
+async function getMessages(req, res) {
+  try {
+    const messages = await ChatMessage.find({ workspace: req.workspaceId })
+      .sort({ createdAt: 1 })
+      .limit(100);
+
+    res.json({
+      messages: messages.map((m) => ({
+        _id: m._id,
+        role: m.role,
+        text: m.content,
+        agentType: m.agentType,
+        // requiresApproval/toolCalls/logId aren't stored on ChatMessage today —
+        // only on ActionLog — so approval cards won't survive a reload yet.
+        // Fine for now; flagged below if you want that fixed too.
+      })),
+    });
+  } catch (err) {
+    console.error("[getMessages] error:", err);
+    res.status(500).json({ error: "Failed to load messages" });
+  }
+}
+
+module.exports = { callAgent, approveAction, getMessages };
+

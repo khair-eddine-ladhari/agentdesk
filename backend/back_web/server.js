@@ -10,6 +10,13 @@ const agentRoutes = require("./routes/agent.routes");
 const documentRoutes = require("./routes/document.routes");
 const dashboardRoutes = require("./routes/dashboard.routes");
 const actionRoutes = require("./routes/actions");
+const taskRoutes = require("./routes/tasks");
+const meetingRoutes = require("./routes/meetings");
+
+
+const noteRoutes = require("./routes/note.routes");
+// ...
+
 
 const app = express();
 
@@ -23,11 +30,19 @@ app.use(express.json());
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
 app.use("/api/auth", authRoutes);
+
 app.use("/api/workspaces", workspaceRoutes);
 app.use("/api/workspaces", agentRoutes);
 app.use("/api/workspaces", documentRoutes);
+
 app.use("/api/workspaces", actionRoutes);
+
 app.use("/api", dashboardRoutes);
+
+app.use("/api/workspaces", taskRoutes);
+app.use("/api/workspaces", meetingRoutes);
+
+app.use("/api/workspaces", noteRoutes);
 
 const PORT = process.env.PORT || 5000;
 

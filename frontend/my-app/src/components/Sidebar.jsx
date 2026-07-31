@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   CheckSquare,
+  ListTodo,
+  CalendarClock,
   MessageSquare,
   FileText,
   BookOpen,
@@ -15,10 +17,12 @@ import {
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/pending-actions", label: "Pending Actions", icon: CheckSquare, badgeKey: "pending" },
+  { href: "/tasks", label: "Tasks", icon: ListTodo },
+  { href: "/meetings", label: "Meetings", icon: CalendarClock },
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/documents", label: "Documents", icon: FileText },
   { href: "/structured-notes", label: "Structured Notes", icon: BookOpen },
-  { href: "/audit-log", label: "Audit Log", icon: History },
+  
 ];
 
 export default function Sidebar({ pendingCount = 0, workspaceName = "Acme Inc." }) {

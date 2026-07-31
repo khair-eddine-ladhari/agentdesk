@@ -1,40 +1,10 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import axios from "axios";
 import AppShell from "@/components/AppShell";
 import { Upload, FileText, CheckCircle2, Loader2, XCircle, Sparkles } from "lucide-react";
-
-// Placeholder data — swap for real fetches later
-const INITIAL_DOCUMENTS = [
-  {
-    id: "d1",
-    name: "contract-notes.docx",
-    status: "embedded",
-    uploadedAt: "2 days ago",
-    size: "48 KB",
-  },
-  {
-    id: "d2",
-    name: "standup-2026-07-25.txt",
-    status: "embedded",
-    uploadedAt: "1 hour ago",
-    size: "4 KB",
-  },
-  {
-    id: "d3",
-    name: "vendor-agreement-draft.pdf",
-    status: "pending",
-    uploadedAt: "5 min ago",
-    size: "212 KB",
-  },
-  {
-    id: "d4",
-    name: "old-scan-illegible.pdf",
-    status: "failed",
-    uploadedAt: "1 day ago",
-    size: "1.1 MB",
-  },
-];
+import { useGlobalContext } from "@/components/GlobalContext"; // adjust path to match your project
 
 const STATUS_CONFIG = {
   embedded: { label: "Embedded", icon: CheckCircle2, className: "text-accent bg-accent-soft" },
@@ -42,23 +12,72 @@ const STATUS_CONFIG = {
   failed: { label: "Failed", icon: XCircle, className: "text-danger bg-danger-soft" },
 };
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
+
+function authHeaders() {
+  const token = sessionStorage.getItem("adminToken");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export default function DocumentsPage() {
-  const [documents, setDocuments] = useState(INITIAL_DOCUMENTS);
+  const { workspace } = useGlobalContext();
+  const workspaceId = workspace?._id;
+
+  const [documents, setDocuments] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [selectedDoc, setSelectedDoc] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [uploadingCount, setUploadingCount] = useState(0);
+  const [structuringId, setStructuringId] = useState(null);
+  const [structureError, setStructureError] = useState(null);
   const fileInputRef = useRef(null);
 
-  function handleFiles(fileList) {
+  const fetchDocuments = useCallback(async () => {
+    if (!workspaceId) return;
+    try {
+      const res = await axios.get(`${API_URL}/workspaces/${workspaceId}/documents`, {
+        headers: authHeaders(),
+      });
+      setDocuments(res.data);
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(err.response?.data?.error || err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [workspaceId]);
+
+  useEffect(() => {
+    fetchDocuments();
+  }, [fetchDocuments]);
+
+  // Uploads are sequential since the backend takes one file per request
+  // (req.file, not req.files) and responds only once extraction/embedding
+  // finishes — so each response already carries the final status.
+  async function handleFiles(fileList) {
+    if (!workspaceId) return;
     const files = Array.from(fileList);
-    const newDocs = files.map((file) => ({
-      id: crypto.randomUUID(),
-      name: file.name,
-      status: "pending",
-      uploadedAt: "just now",
-      size: `${Math.max(1, Math.round(file.size / 1024))} KB`,
-    }));
-    setDocuments((prev) => [...newDocs, ...prev]);
-    // TODO: actually upload via POST /api/documents (FormData)
+    setUploadingCount((n) => n + files.length);
+
+    for (const file of files) {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      try {
+        await axios.post(`${API_URL}/workspaces/${workspaceId}/documents`, formData, {
+          headers: { ...authHeaders(), "Content-Type": "multipart/form-data" },
+        });
+        // The controller returns the doc (embedded/failed/pending) plus
+        // note/detail/chunkCount depending on what happened — refresh
+        // the list rather than trying to reconstruct doc shape here.
+        await fetchDocuments();
+      } catch (err) {
+        console.error("Upload request failed:", err.response?.data?.error || err.message);
+      } finally {
+        setUploadingCount((n) => Math.max(0, n - 1));
+      }
+    }
   }
 
   function handleDrop(e) {
@@ -67,9 +86,35 @@ export default function DocumentsPage() {
     if (e.dataTransfer.files?.length) handleFiles(e.dataTransfer.files);
   }
 
-  function handleStructure(id) {
-    // TODO: call POST /api/documents/:id/structure
-    console.log("Structuring document", id);
+  async function handleStructure(docId) {
+    if (!workspaceId) return;
+    setStructuringId(docId);
+    setStructureError(null);
+    try {
+      const res = await axios.post(
+        `${API_URL}/workspaces/${workspaceId}/documents/${docId}/structure`,
+        {},
+        { headers: authHeaders() }
+      );
+      // res.data.note has key_points / action_items / mentioned_dates.
+      // Swap this for whatever you want to do with the result — routing
+      // to a notes view, showing it inline, etc.
+      console.log("Structured note:", res.data.note);
+    } catch (err) {
+      setStructureError(err.response?.data?.error || "Failed to structure document");
+    } finally {
+      setStructuringId(null);
+    }
+  }
+
+  if (!workspaceId) {
+    return (
+      <AppShell title="Documents">
+        <div className="mx-auto max-w-4xl">
+          <p className="text-sm text-muted">Loading workspace…</p>
+        </div>
+      </AppShell>
+    );
   }
 
   return (
@@ -92,11 +137,11 @@ export default function DocumentsPage() {
             <Upload size={18} />
           </div>
           <p className="text-sm font-medium text-ink">
-            Drop files here, or click to browse
+            {uploadingCount > 0
+              ? `Uploading ${uploadingCount} file${uploadingCount === 1 ? "" : "s"}…`
+              : "Drop files here, or click to browse"}
           </p>
-          <p className="text-xs text-muted">
-            PDF, DOCX, and TXT supported
-          </p>
+          <p className="text-xs text-muted">TXT, MD, PDF, and DOCX supported</p>
           <input
             ref={fileInputRef}
             type="file"
@@ -106,33 +151,49 @@ export default function DocumentsPage() {
           />
         </div>
 
+        {structureError && (
+          <p className="text-xs text-danger">{structureError}</p>
+        )}
+
         {/* Document list */}
         <div>
           <h2 className="mb-3 text-sm font-medium text-ink">
-            {documents.length} document{documents.length === 1 ? "" : "s"}
+            {isLoading
+              ? "Loading documents…"
+              : `${documents.length} document${documents.length === 1 ? "" : "s"}`}
           </h2>
+
+          {loadError && (
+            <p className="mb-3 text-xs text-danger">
+              Couldn't load documents: {loadError}
+            </p>
+          )}
 
           <div className="divide-y divide-border rounded-card border border-border bg-surface shadow-soft">
             {documents.map((doc) => {
-              const status = STATUS_CONFIG[doc.status];
+              // Backend statuses: "pending" | "embedded" | "failed"
+              const status = STATUS_CONFIG[doc.status] || STATUS_CONFIG.pending;
               const StatusIcon = status.icon;
-              const isExpanded = selectedDoc === doc.id;
+              const isExpanded = selectedDoc === doc._id;
 
               return (
-                <div key={doc.id}>
+                <div key={doc._id}>
                   <button
                     type="button"
-                    onClick={() => setSelectedDoc(isExpanded ? null : doc.id)}
+                    onClick={() => setSelectedDoc(isExpanded ? null : doc._id)}
                     className="flex w-full items-center justify-between gap-4 px-4 py-3.5 text-left"
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       <FileText size={16} className="shrink-0 text-muted" />
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium text-ink">
-                          {doc.name}
+                          {doc.filename}
                         </p>
                         <p className="text-xs text-muted">
-                          {doc.size} · {doc.uploadedAt}
+                          {doc.fileType?.toUpperCase()}
+                          {doc.createdAt
+                            ? ` · ${new Date(doc.createdAt).toLocaleString()}`
+                            : ""}
                         </p>
                       </div>
                     </div>
@@ -152,17 +213,23 @@ export default function DocumentsPage() {
                     <div className="border-t border-border bg-bg px-4 py-4">
                       {doc.status === "embedded" ? (
                         <>
-                          <p className="mb-3 text-xs text-muted">
-                            Extracted text preview would go here — swap in a
-                            real fetch of the document's parsed content.
+                          <p className="mb-3 line-clamp-4 text-xs text-muted">
+                            {doc.rawText
+                              ? doc.rawText.slice(0, 400)
+                              : "No preview text available."}
                           </p>
                           <button
                             type="button"
-                            onClick={() => handleStructure(doc.id)}
-                            className="flex items-center gap-1.5 rounded-pill bg-accent px-3.5 py-1.5 text-xs font-medium text-white hover:bg-accent-hover"
+                            onClick={() => handleStructure(doc._id)}
+                            disabled={structuringId === doc._id}
+                            className="flex items-center gap-1.5 rounded-pill bg-accent px-3.5 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-60"
                           >
-                            <Sparkles size={13} />
-                            Structure this
+                            {structuringId === doc._id ? (
+                              <Loader2 size={13} className="animate-spin" />
+                            ) : (
+                              <Sparkles size={13} />
+                            )}
+                            {structuringId === doc._id ? "Structuring…" : "Structure this"}
                           </button>
                         </>
                       ) : doc.status === "pending" ? (
@@ -171,7 +238,8 @@ export default function DocumentsPage() {
                         </p>
                       ) : (
                         <p className="text-xs text-danger">
-                          Couldn't process this file. Try re-uploading, or check that it isn't corrupted or password-protected.
+                          {doc.note ||
+                            "Couldn't process this file. Try re-uploading, or check that it isn't corrupted or password-protected."}
                         </p>
                       )}
                     </div>

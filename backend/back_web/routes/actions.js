@@ -2,11 +2,11 @@
 const express = require("express");
 const router = express.Router();
 const ActionLog = require("../models/ActionLog");
+const Task = require("../models/Task");
+const Meeting = require("../models/Meeting");
 const { requireAuth } = require("../middleware/auth");
 const { requireWorkspaceMembership } = require("../middleware/tenantScope");
 
-// GET /api/workspaces/:workspaceId/actions
-// Actions waiting on a human: needs_review + requiresApproval
 router.get(
   "/:workspaceId/actions",
   requireAuth,
@@ -17,13 +17,10 @@ router.get(
       status: "needs_review",
       requiresApproval: true,
     }).sort({ createdAt: -1 });
-
     res.json(actions);
   }
 );
 
-// PATCH /api/workspaces/:workspaceId/actions/:actionId
-// body: { decision: "approved" | "rejected" }
 router.patch(
   "/:workspaceId/actions/:actionId",
   requireAuth,
@@ -36,17 +33,54 @@ router.patch(
 
     const action = await ActionLog.findOne({
       _id: req.params.actionId,
-      workspace: req.workspaceId, // ensures the action actually belongs to this workspace
+      workspace: req.workspaceId,
     });
     if (!action) return res.status(404).json({ error: "Action not found" });
 
     if (decision === "rejected") {
       action.status = "failed";
-    } else {
-      action.approvedBy = req.userId;
-      action.status = "success";
-      // TODO: actually execute based on action.agentType + action.toolCalls
-      // (send email / create Task / update CRM). Not implemented yet.
+      await action.save();
+      return res.json(action);
+    }
+
+    action.approvedBy = req.userId;
+
+    try {
+      if (action.agentType === "task_agent") {
+        const { tasks } = action.toolCalls || {};
+        if (Array.isArray(tasks)) {
+          await Task.insertMany(
+            tasks.map((title) => ({
+              title,
+              workspace: action.workspace,
+              createdBy: req.userId,
+              status: "open",
+            }))
+          );
+        }
+        action.status = "success";
+      } else if (action.agentType === "meeting_agent") {
+        const { title, attendees, time } = action.toolCalls || {};
+        await Meeting.create({
+          title: title || action.summary,
+          attendees: Array.isArray(attendees) ? attendees : [],
+          time: time || null,
+          workspace: action.workspace,
+          createdBy: req.userId,
+        });
+        action.status = "success";
+      } else if (action.agentType === "email_agent") {
+        // TODO: hook up real email sending
+        action.status = "success";
+      } else if (action.agentType === "crm_agent") {
+        // TODO: hook up real CRM update
+        action.status = "success";
+      } else {
+        action.status = "failed";
+      }
+    } catch (err) {
+      console.error("Action execution failed:", err);
+      action.status = "failed";
     }
 
     await action.save();

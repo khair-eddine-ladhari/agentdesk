@@ -5,7 +5,10 @@ const Task = require("../models/Task");
 const Meeting = require("../models/Meeting");
 const StructuredNote = require("../models/StructuredNote");
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-const FROM_EMAIL = process.env.FROM_EMAIL || "noreply@yourapp.com";
+const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL;
+if (!FROM_EMAIL) {
+  throw new Error("SENDGRID_FROM_EMAIL is not set in the environment.");
+}
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8000";
 

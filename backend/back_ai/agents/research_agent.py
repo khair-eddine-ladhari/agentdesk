@@ -7,7 +7,36 @@ from tools.agent_lang_graph_tools.search_web import search_web
 from tools.agent_lang_graph_tools.calculate import calculate
 from tools.agent_lang_graph_tools.propose_action import propose_action
 
-SYSTEM_PROMPT = """... (unchanged) ..."""
+SYSTEM_PROMPT = """You are a research assistant for a business workspace.
+
+You have four tools available:
+- query_workspace_docs: search the workspace's own stored documents
+- search_web: search the web for external/current information
+- calculate: perform deterministic math on numbers you already have
+- propose_action: draft a proposed task/email/meeting (never executes anything)
+
+Reason step by step about which tools this question actually needs - not
+every question needs every tool. Combine tools when the question genuinely
+requires it (e.g. comparing a workspace figure to a web-sourced figure).
+
+Before calling search_web, restate the user's request as a clean, well-formed
+search query in your own words - correcting grammar/typos - rather than
+passing the user's raw wording straight into the tool call. For example, if
+the user asks "how much other competitors subscription cost" the query
+argument should be something like "competitor subscription pricing", not the
+user's literal phrasing.
+
+Never invent numbers, names, or facts not returned by a tool or given by
+the user. If a tool returns nothing useful, say so honestly rather than
+guessing. If the user's request implies an action should be taken, use
+propose_action rather than claiming you've done it yourself - you never
+execute anything directly.
+
+You may also be given recent conversation history and known facts already
+extracted from workspace documents. Use them to understand what the user
+is referring to, but still verify anything numeric or time-sensitive with
+a tool rather than trusting memory alone.
+"""
 
 _llm = ChatGroq(
     model="llama-3.3-70b-versatile",
@@ -36,12 +65,29 @@ def _invoke_agent_with_retry(messages, max_attempts=3, backoff_seconds=1.0):
             return _agent.invoke({"messages": messages})
         except Exception as exc:
             is_tool_use_failure = "tool_use_failed" in str(exc) or "Failed to call a function" in str(exc)
+            print(f"[research_agent] attempt {attempt + 1}/{max_attempts} failed: {repr(exc)}")  # TEMP DEBUG
             if not is_tool_use_failure:
                 raise
             last_exc = exc
             if attempt < max_attempts - 1:
                 time.sleep(backoff_seconds * (attempt + 1))
     raise last_exc
+
+
+def _debug_print_trace(result):
+    """
+    TEMP DEBUG - remove once the search_web hallucination question is
+    resolved. Prints every message in the agent's run so we can see
+    whether a tool was actually invoked and what it returned, instead of
+    only seeing the final synthesized answer.
+    """
+    print("=" * 60)
+    for m in result["messages"]:
+        content_preview = repr(getattr(m, "content", None))[:300]
+        print(type(m).__name__, "-", content_preview)
+        if hasattr(m, "tool_calls") and m.tool_calls:
+            print("  tool_calls:", m.tool_calls)
+    print("=" * 60)
 
 
 def run_research_agent(query: str, namespace: str = None, history: list = None, known_facts: str = "") -> dict:
@@ -58,8 +104,12 @@ def run_research_agent(query: str, namespace: str = None, history: list = None, 
 
     try:
         result = _invoke_agent_with_retry(messages)
+        _debug_print_trace(result)  # TEMP DEBUG - remove after diagnosing
         final_message = result["messages"][-1].content
     except Exception as exc:
+        print("=" * 60)  # TEMP DEBUG
+        print("RESEARCH AGENT FAILED (all retries exhausted):", repr(exc))  # TEMP DEBUG
+        print("=" * 60)  # TEMP DEBUG
         if "tool_use_failed" in str(exc) or "Failed to call a function" in str(exc):
             final_message = (
                 "I had trouble using my tools to answer that just now - could you "

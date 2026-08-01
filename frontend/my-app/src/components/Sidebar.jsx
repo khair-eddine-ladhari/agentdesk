@@ -4,47 +4,50 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
-  CheckSquare,
   ListTodo,
   CalendarClock,
   MessageSquare,
   FileText,
   BookOpen,
-  History,
   Settings,
 } from "lucide-react";
 
+const PURPLE = "#8A05FF";
+
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-
-  { href: "/tasks", label: "Tasks", icon: ListTodo },
+  { href: "/tasks", label: "Tasks", icon: ListTodo, badgeKey: "pending" },
   { href: "/meetings", label: "Meetings", icon: CalendarClock },
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/documents", label: "Documents", icon: FileText },
   { href: "/structured-notes", label: "Structured Notes", icon: BookOpen },
-  
 ];
 
 export default function Sidebar({ pendingCount = 0, workspaceName = "Acme Inc." }) {
   const pathname = usePathname();
 
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border bg-surface">
+    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-gray-200 bg-white">
       {/* Workspace switcher */}
-      <div className="flex items-center gap-2 px-4 py-4">
-        <div className="flex h-8 w-8 items-center justify-center rounded-control bg-accent-soft text-sm font-semibold text-accent">
+      <div className="flex items-center gap-2.5 border-b border-gray-200 px-4 py-4">
+        <div
+          className="flex h-8 w-8 items-center justify-center text-sm font-semibold text-white"
+          style={{ backgroundColor: PURPLE }}
+        >
           {workspaceName.charAt(0)}
         </div>
         <div className="flex flex-col overflow-hidden">
-          <span className="truncate text-sm font-medium text-ink">
+          <span className="truncate text-sm font-medium text-black">
             {workspaceName}
           </span>
-          <span className="text-xs text-muted">Workspace</span>
+          <span className="font-mono text-[10px] uppercase tracking-wide text-gray-400">
+            Workspace
+          </span>
         </div>
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 space-y-1 px-3 py-2">
+      <nav className="flex-1 space-y-0.5 px-3 py-3">
         {NAV_ITEMS.map((item) => {
           const isActive = pathname === item.href;
           const Icon = item.icon;
@@ -52,18 +55,22 @@ export default function Sidebar({ pendingCount = 0, workspaceName = "Acme Inc." 
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center justify-between gap-2 rounded-control px-3 py-2 text-sm transition-colors ${
+              className={`flex items-center justify-between gap-2 px-3 py-2 text-sm transition-colors ${
                 isActive
-                  ? "bg-accent-soft font-medium text-accent"
-                  : "text-muted hover:bg-bg hover:text-ink"
+                  ? "bg-gray-50 font-medium text-black"
+                  : "text-gray-500 hover:bg-gray-50 hover:text-black"
               }`}
+              style={isActive ? { borderLeft: `2px solid ${PURPLE}`, paddingLeft: "10px" } : undefined}
             >
               <span className="flex items-center gap-2.5">
-                <Icon size={17} strokeWidth={2} />
+                <Icon size={17} strokeWidth={2} style={isActive ? { color: PURPLE } : undefined} />
                 {item.label}
               </span>
               {item.badgeKey === "pending" && pendingCount > 0 && (
-                <span className="rounded-pill bg-accent px-2 py-0.5 text-xs font-medium text-white">
+                <span
+                  className="px-2 py-0.5 text-xs font-medium text-white"
+                  style={{ backgroundColor: PURPLE }}
+                >
                   {pendingCount}
                 </span>
               )}
@@ -73,19 +80,27 @@ export default function Sidebar({ pendingCount = 0, workspaceName = "Acme Inc." 
       </nav>
 
       {/* Bottom: settings */}
-     {/* Bottom: settings */}
-      <div className="border-t border-border px-3 py-3">
-       <Link
-  href="/settings/workspace"
-  className={`flex items-center gap-2.5 rounded-control px-3 py-2 text-sm transition-colors ${
-    pathname.startsWith("/settings")
-      ? "bg-accent-soft font-medium text-accent"
-      : "text-muted hover:bg-bg hover:text-ink"
-  }`}
->
-  <Settings size={17} strokeWidth={2} />
-  Settings
-</Link>
+      <div className="border-t border-gray-200 px-3 py-3">
+        <Link
+          href="/settings/workspace"
+          className={`flex items-center gap-2.5 px-3 py-2 text-sm transition-colors ${
+            pathname.startsWith("/settings")
+              ? "bg-gray-50 font-medium text-black"
+              : "text-gray-500 hover:bg-gray-50 hover:text-black"
+          }`}
+          style={
+            pathname.startsWith("/settings")
+              ? { borderLeft: `2px solid ${PURPLE}`, paddingLeft: "10px" }
+              : undefined
+          }
+        >
+          <Settings
+            size={17}
+            strokeWidth={2}
+            style={pathname.startsWith("/settings") ? { color: PURPLE } : undefined}
+          />
+          Settings
+        </Link>
       </div>
     </aside>
   );

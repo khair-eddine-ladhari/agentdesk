@@ -6,6 +6,7 @@ import { useGlobalContext } from "@/components/GlobalContext";
 import { Loader2, Users, CalendarClock, History } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
+const PURPLE = "#8A05FF";
 
 function initialsOf(nameOrEmail) {
   const namePart = nameOrEmail.split("@")[0];
@@ -41,73 +42,93 @@ export default function MeetingsPage() {
 
   return (
     <AppShell title="Meetings">
-      <div className="mx-auto max-w-3xl space-y-4">
-        {loading && (
-          <div className="flex items-center justify-center py-10 text-muted">
-            <Loader2 size={18} className="animate-spin" />
-          </div>
-        )}
+      <div className="min-h-screen bg-white">
+        <div className="mx-auto max-w-3xl p-6">
+          <div className="mb-6 flex items-end justify-between border-b border-gray-900 pb-4">
+            <div>
+              <div className="font-mono text-[11px] uppercase tracking-wide text-gray-400 mb-1">
+                TASKS
 
-        {error && (
-          <div className="rounded-card border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
-
-        {!loading && meetings.length === 0 && !error && (
-          <div className="rounded-card border border-border bg-surface p-10 text-center shadow-soft">
-            <p className="text-sm font-medium text-ink">No meetings yet</p>
-            <p className="mt-1 text-sm text-muted">
-              Meetings created by your agents will show up here.
-            </p>
-          </div>
-        )}
-
-        {!loading &&
-          meetings.map((meeting) => (
-            <div
-              key={meeting._id}
-              className="rounded-card border border-border bg-surface shadow-soft overflow-hidden"
-            >
-              <div className="p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <p className="text-sm font-medium text-ink">{meeting.title}</p>
-
-                  {meeting.time && (
-                    <span className="flex shrink-0 items-center gap-1.5 rounded-pill bg-accent-soft px-2.5 py-1 text-xs font-medium text-accent">
-                      <CalendarClock size={12} />
-                      {meeting.time}
-                    </span>
-                  )}
-                </div>
-
-                {meeting.attendees?.length > 0 && (
-                  <div className="mt-3 flex items-center gap-2">
-                    <Users size={13} className="shrink-0 text-muted" />
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {meeting.attendees.map((person) => (
-                        <span
-                          key={person}
-                          className="flex items-center gap-1.5 rounded-pill border border-border bg-bg px-2 py-0.5 text-xs text-ink"
-                          title={person}
-                        >
-                          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-accent text-[9px] font-medium text-white">
-                            {initialsOf(person)}
-                          </span>
-                          {person}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
-
-              <div className="flex items-center gap-1.5 border-t border-border bg-bg/50 px-4 py-2 text-[11px] text-muted">
-                <History size={11} />
-                Logged {new Date(meeting.createdAt).toLocaleString()}
-              </div>
+              <h1 className="text-2xl font-semibold tracking-tight text-black">
+                {meetings.length > 0 ? `${meetings.length} scheduled` : "TASKS"}
+              </h1>
             </div>
-          ))}
+          </div>
+
+          {loading && (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 size={18} className="animate-spin" style={{ color: PURPLE }} />
+            </div>
+          )}
+
+          {error && (
+            <div className="border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
+          {!loading && meetings.length === 0 && !error && (
+            <div className="border border-gray-200 p-12 text-center">
+              <p className="text-sm font-medium text-black">No tasks yet</p>
+              <p className="mt-1 text-sm text-gray-400">
+                tasks created by your agents will show up here.
+              </p>
+            </div>
+          )}
+
+          {!loading && meetings.length > 0 && (
+            <div className="space-y-3">
+              {meetings.map((meeting) => (
+                <div key={meeting._id} className="border border-gray-200">
+                  <div className="p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <p className="text-sm font-medium text-black">{meeting.title}</p>
+
+                      {meeting.time && (
+                        <span
+                          className="flex shrink-0 items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-white"
+                          style={{ backgroundColor: PURPLE }}
+                        >
+                          <CalendarClock size={12} />
+                          {meeting.time}
+                        </span>
+                      )}
+                    </div>
+
+                    {meeting.attendees?.length > 0 && (
+                      <div className="mt-3 flex items-start gap-2">
+                        <Users size={13} className="mt-0.5 shrink-0 text-gray-400" />
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {meeting.attendees.map((person) => (
+                            <span
+                              key={person}
+                              className="flex items-center gap-1.5 border border-gray-200 px-2 py-0.5 text-xs text-black"
+                              title={person}
+                            >
+                              <span
+                                className="flex h-4 w-4 items-center justify-center text-[9px] font-medium text-white"
+                                style={{ backgroundColor: PURPLE }}
+                              >
+                                {initialsOf(person)}
+                              </span>
+                              {person}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1.5 border-t border-gray-100 bg-gray-50 px-4 py-2 text-[11px] text-gray-400">
+                    <History size={11} />
+                    Logged {new Date(meeting.createdAt).toLocaleString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </AppShell>
   );

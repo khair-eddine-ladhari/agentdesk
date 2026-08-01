@@ -1,13 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useContext } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Loader2 } from "lucide-react";
+import { GlobalContext } from "../../../components/GlobalContext";
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
-console.log("API_URL =", API_URL);
+
 export default function RegisterPage() {
   const router = useRouter();
+  const { login } = useContext(GlobalContext);
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -37,8 +40,6 @@ export default function RegisterPage() {
 
     setLoading(true);
 
-    
-
     try {
       const res = await fetch(`${API_URL}/auth/register`, {
         method: "POST",
@@ -56,7 +57,12 @@ export default function RegisterPage() {
         throw new Error(data.message || "Couldn't create your account. Try again.");
       }
 
-      router.push("/dashboard");
+      // Store the token the same way the login page does
+      sessionStorage.setItem("adminToken", data.token);
+      login(data.user);
+
+      // Full navigation, like login — keeps behavior consistent
+      window.location.href = "/dashboard";
     } catch (err) {
       setError(err.message);
     } finally {

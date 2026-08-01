@@ -4,9 +4,10 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import axios from "axios";
 import AppShell from "@/components/AppShell";
 import { Send, Bot, User, Check, X, Loader2, RefreshCw, AlertCircle } from "lucide-react";
-import { useGlobalContext } from "@/components/GlobalContext"; // adjust path to match your project
+import { useGlobalContext } from "@/components/GlobalContext";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
+const PURPLE = "#8A05FF";
 
 function authHeaders() {
   try {
@@ -34,7 +35,7 @@ export default function ChatPage() {
   const [isSending, setIsSending] = useState(false);
   const [approvingLogId, setApprovingLogId] = useState(null);
   const [decliningLogId, setDecliningLogId] = useState(null);
-  const [historyState, setHistoryState] = useState("loading"); // loading | ready | error
+  const [historyState, setHistoryState] = useState("loading");
   const scrollRef = useRef(null);
 
   useEffect(() => {
@@ -58,9 +59,6 @@ export default function ChatPage() {
         agentType: m.agentType,
         toolCalls: m.toolCalls || [],
         logId: m.logId,
-        // Persisted decision is the source of truth now - requiresApproval
-        // flips to false once an action is resolved, so it can't be used
-        // to decide whether to show the card anymore.
         approvalStatus: m.decision || null,
       }));
 
@@ -89,7 +87,7 @@ export default function ChatPage() {
     try {
       const res = await axios.post(
         `${API_URL}/workspaces/${workspaceId}/agent/run`,
-        { query: text }, // agentType omitted — let the agent service route it
+        { query: text },
         { headers: authHeaders() }
       );
       const data = res.data;
@@ -148,7 +146,6 @@ export default function ChatPage() {
 
   async function handleDecline(messageId, logId) {
     setDecliningLogId(logId);
-    // Optimistic update, with rollback on failure below.
     setMessages((prev) =>
       prev.map((m) => (m.id === messageId ? { ...m, approvalStatus: "declined" } : m))
     );
@@ -170,8 +167,8 @@ export default function ChatPage() {
   if (!workspaceId) {
     return (
       <AppShell title="Chat">
-        <div className="mx-auto max-w-3xl">
-          <p className="text-sm text-muted">Loading workspace…</p>
+        <div className="mx-auto max-w-3xl bg-white min-h-screen p-6">
+          <p className="text-sm text-gray-400">Loading workspace…</p>
         </div>
       </AppShell>
     );
@@ -179,9 +176,9 @@ export default function ChatPage() {
 
   return (
     <AppShell title="Chat">
-      <div className="mx-auto flex h-[calc(100vh-8rem)] max-w-3xl flex-col">
+      <div className="mx-auto flex h-[calc(100vh-8rem)] max-w-3xl flex-col bg-white px-6">
         {historyState === "error" && (
-          <div className="mb-3 flex items-center justify-between gap-2 rounded-card border border-danger/30 bg-danger/5 px-3.5 py-2 text-xs text-danger">
+          <div className="mb-3 mt-4 flex items-center justify-between gap-2 border border-red-200 bg-red-50 px-3.5 py-2 text-xs text-red-700">
             <span className="flex items-center gap-2">
               <AlertCircle size={14} className="shrink-0" />
               Couldn't load previous messages. Showing a fresh conversation — your history is
@@ -189,7 +186,7 @@ export default function ChatPage() {
             </span>
             <button
               onClick={loadHistory}
-              className="flex shrink-0 items-center gap-1.5 rounded-pill border border-border px-3 py-1 font-medium text-muted hover:bg-bg"
+              className="flex shrink-0 items-center gap-1.5 border border-gray-300 px-3 py-1 font-medium text-gray-500 hover:bg-gray-50"
             >
               <RefreshCw size={12} />
               Retry
@@ -198,10 +195,10 @@ export default function ChatPage() {
         )}
 
         {/* Message thread */}
-        <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto pb-4">
+        <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto pt-4 pb-4">
           {historyState === "loading" ? (
-            <div className="flex items-center justify-center gap-2 py-10 text-sm text-muted">
-              <Loader2 size={14} className="animate-spin" />
+            <div className="flex items-center justify-center gap-2 py-10 text-sm text-gray-400">
+              <Loader2 size={14} className="animate-spin" style={{ color: PURPLE }} />
               Loading conversation…
             </div>
           ) : (
@@ -211,39 +208,39 @@ export default function ChatPage() {
                 className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : ""}`}
               >
                 <div
-                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-control ${
-                    msg.role === "user" ? "bg-ink/5 text-ink" : "bg-accent-soft text-accent"
-                  }`}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center"
+                  style={
+                    msg.role === "user"
+                      ? { backgroundColor: "#0a0a0a", color: "#fff" }
+                      : { backgroundColor: PURPLE, color: "#fff" }
+                  }
                 >
                   {msg.role === "user" ? <User size={15} /> : <Bot size={15} />}
                 </div>
 
                 <div className={`max-w-[75%] ${msg.role === "user" ? "items-end" : ""}`}>
                   <div
-                    className={`rounded-card px-4 py-2.5 text-sm shadow-soft ${
+                    className={`px-4 py-2.5 text-sm ${
                       msg.role === "user"
-                        ? "bg-accent text-white"
-                        : "border border-border bg-surface text-ink"
+                        ? "text-white"
+                        : "border border-gray-200 bg-white text-black"
                     }`}
+                    style={msg.role === "user" ? { backgroundColor: "#0a0a0a" } : undefined}
                   >
                     {msg.text}
                   </div>
 
-                  {/* Approval card: renders whenever tool calls exist, regardless
-                      of requiresApproval - that flag flips to false once resolved,
-                      so it can no longer gate visibility. Status comes from the
-                      persisted `decision` field instead. */}
                   {msg.toolCalls?.length > 0 && msg.approvalStatus && (
                     <div className="mt-2 space-y-2">
                       {msg.toolCalls.map((toolCall, i) => (
                         <div
                           key={i}
-                          className="rounded-card border border-warn/40 bg-warn-soft px-3.5 py-2.5"
+                          className="border border-amber-300 bg-amber-50 px-3.5 py-2.5"
                         >
-                          <p className="text-xs font-medium text-ink">
+                          <p className="text-xs font-medium text-black">
                             Proposed action: {toolCall.tool}
                           </p>
-                          <pre className="mt-1 overflow-x-auto text-xs text-muted">
+                          <pre className="mt-1 overflow-x-auto text-xs text-gray-500">
                             {JSON.stringify(toolCall.parameters, null, 2)}
                           </pre>
 
@@ -255,7 +252,8 @@ export default function ChatPage() {
                                 disabled={
                                   approvingLogId === msg.logId || decliningLogId === msg.logId
                                 }
-                                className="flex items-center gap-1 rounded-pill bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+                                className="flex items-center gap-1 px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-60"
+                                style={{ backgroundColor: PURPLE }}
                               >
                                 {approvingLogId === msg.logId ? (
                                   <Loader2 size={12} className="animate-spin" />
@@ -270,7 +268,7 @@ export default function ChatPage() {
                                 disabled={
                                   approvingLogId === msg.logId || decliningLogId === msg.logId
                                 }
-                                className="flex items-center gap-1 rounded-pill border border-border px-3 py-1 text-xs font-medium text-muted hover:bg-bg disabled:opacity-60"
+                                className="flex items-center gap-1 border border-gray-300 px-3 py-1 text-xs font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-60"
                               >
                                 {decliningLogId === msg.logId ? (
                                   <Loader2 size={12} className="animate-spin" />
@@ -282,15 +280,15 @@ export default function ChatPage() {
                             </div>
                           )}
                           {msg.approvalStatus === "approved" && (
-                            <p className="mt-2 text-xs font-medium text-accent">
+                            <p className="mt-2 text-xs font-medium" style={{ color: PURPLE }}>
                               Approved and executed
                             </p>
                           )}
                           {msg.approvalStatus === "declined" && (
-                            <p className="mt-2 text-xs text-muted">Declined</p>
+                            <p className="mt-2 text-xs text-gray-400">Declined</p>
                           )}
                           {msg.approvalStatus === "failed" && (
-                            <p className="mt-2 text-xs text-danger">
+                            <p className="mt-2 text-xs text-red-600">
                               Approval failed — check the audit log
                             </p>
                           )}
@@ -305,13 +303,16 @@ export default function ChatPage() {
 
           {isSending && (
             <div className="flex gap-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control bg-accent-soft text-accent">
+              <div
+                className="flex h-8 w-8 shrink-0 items-center justify-center text-white"
+                style={{ backgroundColor: PURPLE }}
+              >
                 <Bot size={15} />
               </div>
-              <div className="flex items-center gap-1 rounded-card border border-border bg-surface px-4 py-3 shadow-soft">
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted [animation-delay:-0.3s]" />
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted [animation-delay:-0.15s]" />
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted" />
+              <div className="flex items-center gap-1 border border-gray-200 bg-white px-4 py-3">
+                <span className="h-1.5 w-1.5 animate-bounce bg-gray-300 [animation-delay:-0.3s]" />
+                <span className="h-1.5 w-1.5 animate-bounce bg-gray-300 [animation-delay:-0.15s]" />
+                <span className="h-1.5 w-1.5 animate-bounce bg-gray-300" />
               </div>
             </div>
           )}
@@ -320,19 +321,20 @@ export default function ChatPage() {
         {/* Input bar */}
         <form
           onSubmit={handleSend}
-          className="flex items-center gap-2 border-t border-border bg-bg pt-4"
+          className="flex items-center gap-2 border-t border-gray-200 bg-white pt-4 pb-6"
         >
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask something, or tell an agent what to do..."
-            className="flex-1 rounded-pill border border-border bg-surface px-4 py-2.5 text-sm text-ink placeholder:text-muted/60 focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+            className="flex-1 border border-gray-300 px-4 py-2.5 text-sm text-black placeholder:text-gray-400 focus:outline-none focus:border-black"
           />
           <button
             type="submit"
             disabled={!input.trim() || isSending}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-pill bg-accent text-white hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex h-10 w-10 shrink-0 items-center justify-center text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ backgroundColor: PURPLE }}
           >
             <Send size={16} />
           </button>

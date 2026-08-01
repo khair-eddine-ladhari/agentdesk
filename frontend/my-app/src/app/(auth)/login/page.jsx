@@ -7,9 +7,11 @@ import { useContext } from "react";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { GlobalContext } from "../../../components/GlobalContext";
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
-export default function LoginPage() {
- const [form, setForm] = useState({ email: "", password: "" });
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export default function LoginPage() {
+  const [form, setForm] = useState({ email: "", password: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const { login } = useContext(GlobalContext);
@@ -19,26 +21,44 @@ export default function LoginPage() {
     setError("");
   };
 
+  const validate = () => {
+    const email = form.email.trim();
+    const password = form.password;
+
+    if (!email) return "Email is required.";
+    if (!EMAIL_REGEX.test(email)) return "Enter a valid email address.";
+    if (!password) return "Password is required.";
+    if (password.length < 6) return "Password must be at least 6 characters.";
+
+    return null;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
     setError("");
 
+    const validationError = validate();
+    if (validationError) {
+      setError(validationError);
+      return; // stop here — never hits the backend
+    }
+
+    setLoading(true);
     try {
-      const res = await axios.post(`${API_URL}/auth/login`, form);
+      const res = await axios.post(`${API_URL}/auth/login`, {
+        email: form.email.trim(),
+        password: form.password,
+      });
 
       sessionStorage.setItem("adminToken", res.data.token);
-      // Fixed order: update auth context BEFORE navigating away —
-      // window.location.href triggers a full page navigation, so any
-      // code after it is unlikely to execute.
       login(res.data.user);
       window.location.href = "/dashboard";
-    } catch (error) {
-      setError(error.response?.data?.message || "Authentication failed");
+    } catch (err) {
+      setError(err.response?.data?.message || "Authentication failed");
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   return (
     <div className="min-h-screen bg-bg text-ink flex flex-col">
@@ -64,19 +84,15 @@ export default function LoginPage() {
           </div>
 
           <div className="bg-surface rounded-card border border-border shadow-soft p-6">
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4" noValidate>
               <div>
-                <label
-                  htmlFor="email"
-                  className="block text-sm font-medium mb-1.5"
-                >
+                <label htmlFor="email" className="block text-sm font-medium mb-1.5">
                   Email
                 </label>
                 <input
                   id="email"
                   name="email"
                   type="email"
-                  required
                   autoComplete="email"
                   value={form.email}
                   onChange={handleChange}
@@ -86,17 +102,13 @@ export default function LoginPage() {
               </div>
 
               <div>
-                <label
-                  htmlFor="password"
-                  className="block text-sm font-medium mb-1.5"
-                >
+                <label htmlFor="password" className="block text-sm font-medium mb-1.5">
                   Password
                 </label>
                 <input
                   id="password"
                   name="password"
                   type="password"
-                  required
                   autoComplete="current-password"
                   value={form.password}
                   onChange={handleChange}

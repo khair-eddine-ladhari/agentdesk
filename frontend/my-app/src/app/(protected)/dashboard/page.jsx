@@ -12,6 +12,10 @@ import {
   Loader2,
   Plus,
   ArrowRight,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
 } from "lucide-react";
 
 import AppShell from "@/components/AppShell";
@@ -19,43 +23,48 @@ import { GlobalContext } from "@/components/GlobalContext";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
-// previewKey: which array in stats.previews this card should show.
-// previewLabel(item): how to render one preview row as a short line of text.
+const PURPLE = "#8A05FF";
+
 const STAT_CONFIG = [
   { key: "userCount", label: "Users", icon: Users, href: "/settings/workspace" },
-  {
-    key: "documentCount",
-    label: "Documents",
-    icon: FileText,
-    href: "/documents",
-    previewKey: "documents",
-    previewLabel: (doc) => doc.filename,
-  },
-  {
-    key: "taskCount",
-    label: "Tasks",
-    icon: CheckSquare,
-    href: "/structured-notes",
-    previewKey: "tasks",
-    previewLabel: (task) => task.title,
-  },
-  {
-    key: "meetingCount",
-    label: "Meetings",
-    icon: CalendarClock,
-    href: "/structured-notes",
-    previewKey: "meetings",
-    previewLabel: (meeting) => meeting.title,
-  },
-  {
-    key: "messageCount",
-    label: "Messages",
-    icon: MessageSquare,
-    href: "/chat",
-    previewKey: "messages",
-    previewLabel: (msg) => msg.content,
-  },
+  { key: "documentCount", label: "Documents", icon: FileText, href: "/documents" },
+  { key: "taskCount", label: "Tasks", icon: CheckSquare, href: "/structured-notes" },
+  { key: "meetingCount", label: "Meetings", icon: CalendarClock, href: "/structured-notes" },
+  { key: "messageCount", label: "Messages", icon: MessageSquare, href: "/chat" },
 ];
+
+const TASK_STATUS = {
+  pending: { label: "Pending", icon: Clock, className: "text-amber-600 bg-amber-50" },
+  approved: { label: "Approved", icon: CheckCircle2, className: "text-emerald-700 bg-emerald-50" },
+  rejected: { label: "Rejected", icon: XCircle, className: "text-red-600 bg-red-50" },
+  failed: { label: "Failed", icon: AlertCircle, className: "text-red-600 bg-red-50" },
+};
+
+function StatusBadge({ status }) {
+  const cfg = TASK_STATUS[status] || TASK_STATUS.pending;
+  const Icon = cfg.icon;
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-medium ${cfg.className}`}>
+      <Icon size={11} />
+      {cfg.label}
+    </span>
+  );
+}
+
+function formatTime(dateStr) {
+  if (!dateStr) return "";
+  return new Date(dateStr).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatRelative(dateStr) {
+  if (!dateStr) return "";
+  const mins = Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
 
 export default function DashboardPage() {
   const { workspace } = useContext(GlobalContext);
@@ -66,16 +75,10 @@ export default function DashboardPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    // Still resolving which workspace (if any) the user has - GlobalContext
-    // hasn't settled yet. Keep showing the loading state, don't fetch yet.
     if (workspace === undefined) {
       setLoading(true);
       return;
     }
-
-    // Context has resolved and there's genuinely no workspace - stop
-    // loading immediately instead of hanging forever waiting for a
-    // workspace._id that will never arrive.
     if (workspace === null) {
       setLoading(false);
       return;
@@ -84,13 +87,11 @@ export default function DashboardPage() {
     async function fetchStats() {
       setLoading(true);
       setError("");
-
       const token = sessionStorage.getItem("adminToken");
       const headers = {
         Authorization: `Bearer ${token}`,
         "X-Workspace-ID": workspace._id,
       };
-
       try {
         const res = await axios.get(`${API_URL}/dashboard/stats`, { headers });
         setStats(res.data);
@@ -110,8 +111,8 @@ export default function DashboardPage() {
   if (loading) {
     return (
       <AppShell title="Dashboard">
-        <div className="flex h-64 items-center justify-center">
-          <Loader2 size={20} className="animate-spin text-muted" />
+        <div className="flex h-64 items-center justify-center bg-white">
+          <Loader2 size={20} className="animate-spin" style={{ color: PURPLE }} />
         </div>
       </AppShell>
     );
@@ -120,8 +121,8 @@ export default function DashboardPage() {
   if (error) {
     return (
       <AppShell title="Dashboard">
-        <div className="mx-auto max-w-5xl">
-          <p className="rounded-card border border-danger/20 bg-danger-soft px-4 py-3 text-sm text-danger">
+        <div className="mx-auto max-w-6xl bg-white min-h-screen p-6">
+          <p className="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
           </p>
         </div>
@@ -129,46 +130,44 @@ export default function DashboardPage() {
     );
   }
 
-  // No workspace yet: show the same organized grid, but every box is
-  // empty/disabled, plus one clear call-to-action instead of five dead
-  // links pointing at pages the user can't use yet.
   if (!workspace) {
     return (
       <AppShell title="Dashboard">
-        <div className="mx-auto max-w-5xl">
-          <div className="mb-6 rounded-card border border-border bg-surface p-6 text-center shadow-soft">
-            <h2 className="text-lg font-semibold text-ink">
+        <div className="mx-auto max-w-6xl bg-white min-h-screen p-6">
+          <div className="mb-6 border border-gray-200 p-10 text-center">
+            <h2 className="font-semibold text-black text-lg">
               Create your first workspace
             </h2>
-            <p className="mx-auto mt-1 max-w-md text-sm text-muted">
+            <p className="mx-auto mt-1 max-w-md text-sm text-gray-500">
               Workspaces keep your tasks, documents, meetings, and chats
-              organized in one place. You don't have one yet - create one to
+              organized in one place. You don't have one yet — create one to
               get started.
             </p>
             <button
-              onClick={() => router.push("/Createworkspacepage ")}
-              className="mt-4 inline-flex items-center gap-2 rounded-card bg-accent px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
+              onClick={() => router.push("/create-workspace")}
+              className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white transition hover:opacity-90"
+              style={{ backgroundColor: "#0a0a0a" }}
             >
               <Plus size={16} />
               Create workspace
             </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-            {STAT_CONFIG.map((stat) => {
+          <div className="grid grid-cols-2 gap-0 border border-gray-200 lg:grid-cols-5">
+            {STAT_CONFIG.map((stat, i) => {
               const Icon = stat.icon;
               return (
                 <div
                   key={stat.key}
-                  className="rounded-card border border-dashed border-border bg-surface p-5 opacity-60"
+                  className={`p-5 opacity-50 ${i > 0 ? "border-l border-gray-200" : ""}`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted">{stat.label}</span>
-                    <Icon size={16} className="text-muted" strokeWidth={2} />
+                    <span className="font-mono text-[11px] uppercase tracking-wide text-gray-400">
+                      {stat.label}
+                    </span>
+                    <Icon size={14} className="text-gray-400" strokeWidth={2} />
                   </div>
-                  <div className="mt-2 text-2xl font-semibold text-muted">
-                    —
-                  </div>
+                  <div className="mt-3 text-2xl font-semibold text-gray-300">—</div>
                 </div>
               );
             })}
@@ -178,58 +177,241 @@ export default function DashboardPage() {
     );
   }
 
+  const tasks = stats?.previews?.tasks ?? [];
+  const meetings = stats?.previews?.meetings ?? [];
+  const activity = stats?.previews?.activity ?? stats?.previews?.messages ?? [];
+  const users = stats?.previews?.users ?? [];
+
   return (
     <AppShell title="Dashboard">
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-4">
-          <h2 className="text-lg font-semibold text-ink">
-            {workspace?.name || "Workspace"}
-          </h2>
-          <p className="text-sm text-muted">Workspace ID: {workspace?._id}</p>
-        </div>
+      <div className="min-h-screen bg-white">
+        <div className="mx-auto max-w-6xl p-6">
+          {/* Header */}
+          <div className="mb-8 flex items-end justify-between border-b border-gray-900 pb-6">
+            <div>
+              <div className="font-mono text-[11px] uppercase tracking-wide text-gray-400 mb-2">
+                Workspace
+              </div>
+              <h1 className="text-3xl font-semibold tracking-tight text-black">
+                {workspace?.name || "Workspace"}
+              </h1>
+              <p className="mt-1 font-mono text-xs text-gray-400">{workspace?._id}</p>
+            </div>
+            <button
+              onClick={() => router.push("/structured-notes")}
+              className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90"
+              style={{ backgroundColor: "#0a0a0a" }}
+            >
+              <Plus size={14} />
+              New task
+            </button>
+          </div>
 
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-          {STAT_CONFIG.map((stat) => {
-            const Icon = stat.icon;
-            const previews = stat.previewKey
-              ? (stats?.previews?.[stat.previewKey] ?? [])
-              : [];
+          {/* Stat strip — bordered grid like Render's feature grid */}
+          <div className="mb-10 grid grid-cols-2 border border-gray-200 lg:grid-cols-5">
+            {STAT_CONFIG.map((stat, i) => {
+              const Icon = stat.icon;
+              return (
+                <button
+                  key={stat.key}
+                  onClick={() => router.push(stat.href)}
+                  className={`group p-5 text-left transition hover:bg-gray-50 ${
+                    i > 0 ? "border-l border-gray-200" : ""
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-[11px] uppercase tracking-wide text-gray-400">
+                      {stat.label}
+                    </span>
+                    <Icon
+                      size={14}
+                      className="text-gray-400 transition"
+                      style={{ color: "inherit" }}
+                      strokeWidth={2}
+                    />
+                  </div>
+                  <div className="mt-3 text-3xl font-semibold text-black">
+                    {stats?.[stat.key] ?? 0}
+                  </div>
+                  <div
+                    className="mt-2 flex items-center gap-1 text-xs font-medium opacity-0 transition group-hover:opacity-100"
+                    style={{ color: PURPLE }}
+                  >
+                    View all <ArrowRight size={11} />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
 
-            return (
-              <button
-                key={stat.key}
-                onClick={() => router.push(stat.href)}
-                className="group flex flex-col rounded-card border border-border bg-surface p-5 text-left shadow-soft transition hover:border-accent/40 hover:shadow-md"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted">{stat.label}</span>
-                  <Icon size={16} className="text-accent" strokeWidth={2} />
+          {/* Tasks + Meetings */}
+          <div className="mb-10 grid grid-cols-1 gap-6 lg:grid-cols-2">
+            {/* Tasks panel */}
+            <div className="border border-gray-200">
+              <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
+                <div className="flex items-center gap-2">
+                  <div
+                    className="flex h-5 w-5 items-center justify-center text-[10px] font-semibold text-white"
+                    style={{ backgroundColor: PURPLE }}
+                  >
+                    <CheckSquare size={11} />
+                  </div>
+                  <h2 className="text-sm font-semibold text-black">Pending tasks</h2>
                 </div>
-
-                <div className="mt-2 text-2xl font-semibold text-ink">
-                  {stats?.[stat.key] ?? 0}
-                </div>
-
-                {previews.length > 0 && (
-                  <ul className="mt-3 space-y-1 border-t border-border pt-3">
-                    {previews.map((item, i) => (
-                      <li
-                        key={item._id || i}
-                        className="truncate text-xs text-muted"
-                      >
-                        {stat.previewLabel(item)}
-                      </li>
-                    ))}
-                  </ul>
+                <button
+                  onClick={() => router.push("/structured-notes")}
+                  className="flex items-center gap-1 text-xs text-gray-400 transition hover:text-black"
+                >
+                  View all <ArrowRight size={11} />
+                </button>
+              </div>
+              <div className="divide-y divide-gray-100">
+                {tasks.length === 0 && (
+                  <p className="px-5 py-8 text-center text-xs text-gray-400">
+                    No tasks waiting on approval.
+                  </p>
                 )}
+                {tasks.slice(0, 5).map((task, i) => (
+                  <div
+                    key={task._id || i}
+                    className="flex items-center justify-between px-5 py-3.5 transition hover:bg-gray-50"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm text-black">{task.title}</p>
+                      <p className="mt-0.5 truncate text-xs text-gray-400">
+                        {task.agent || task.owner || "Agent"} · {formatRelative(task.createdAt)}
+                      </p>
+                    </div>
+                    <StatusBadge status={task.status || "pending"} />
+                  </div>
+                ))}
+              </div>
+            </div>
 
-                <div className="mt-3 flex items-center gap-1 text-xs font-medium text-accent opacity-0 transition group-hover:opacity-100">
-                  View all
-                  <ArrowRight size={12} />
+            {/* Meetings panel */}
+            <div className="border border-gray-200">
+              <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
+                <div className="flex items-center gap-2">
+                  <div
+                    className="flex h-5 w-5 items-center justify-center text-[10px] font-semibold text-white"
+                    style={{ backgroundColor: PURPLE }}
+                  >
+                    <CalendarClock size={11} />
+                  </div>
+                  <h2 className="text-sm font-semibold text-black">Upcoming meetings</h2>
                 </div>
-              </button>
-            );
-          })}
+                <button
+                  onClick={() => router.push("/structured-notes")}
+                  className="flex items-center gap-1 text-xs text-gray-400 transition hover:text-black"
+                >
+                  View all <ArrowRight size={11} />
+                </button>
+              </div>
+              <div className="divide-y divide-gray-100">
+                {meetings.length === 0 && (
+                  <p className="px-5 py-8 text-center text-xs text-gray-400">
+                    Nothing scheduled.
+                  </p>
+                )}
+                {meetings.slice(0, 5).map((meeting, i) => (
+                  <div
+                    key={meeting._id || i}
+                    className="flex items-center gap-3 px-5 py-3.5 transition hover:bg-gray-50"
+                  >
+                    <div className="flex w-14 shrink-0 flex-col items-center border border-gray-200 py-1.5">
+                      <span className="font-mono text-xs font-semibold text-black">
+                        {formatTime(meeting.startsAt || meeting.time)}
+                      </span>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm text-black">{meeting.title}</p>
+                      <p className="mt-0.5 truncate text-xs text-gray-400">
+                        {meeting.participants?.length
+                          ? `${meeting.participants.length} participants`
+                          : meeting.owner || ""}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Activity + Team */}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <div className="border border-gray-200 lg:col-span-2">
+              <div className="flex items-center gap-2 border-b border-gray-200 px-5 py-4">
+                <div
+                  className="flex h-5 w-5 items-center justify-center text-[10px] font-semibold text-white"
+                  style={{ backgroundColor: PURPLE }}
+                >
+                  <MessageSquare size={11} />
+                </div>
+                <h2 className="text-sm font-semibold text-black">Recent activity</h2>
+              </div>
+              <div className="divide-y divide-gray-100">
+                {activity.length === 0 && (
+                  <p className="px-5 py-8 text-center text-xs text-gray-400">
+                    No recent activity yet.
+                  </p>
+                )}
+                {activity.slice(0, 6).map((item, i) => (
+                  <div key={item._id || i} className="flex items-start gap-3 px-5 py-3.5">
+                    <div
+                      className="mt-1.5 h-1.5 w-1.5 shrink-0"
+                      style={{ backgroundColor: PURPLE }}
+                    />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm text-gray-700">
+                        {item.content || item.title}
+                      </p>
+                      <p className="mt-0.5 text-xs text-gray-400">
+                        {formatRelative(item.createdAt)}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="border border-gray-200">
+              <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
+                <div className="flex items-center gap-2">
+                  <div
+                    className="flex h-5 w-5 items-center justify-center text-[10px] font-semibold text-white"
+                    style={{ backgroundColor: PURPLE }}
+                  >
+                    <Users size={11} />
+                  </div>
+                  <h2 className="text-sm font-semibold text-black">Team</h2>
+                </div>
+                <button
+                  onClick={() => router.push("/settings/workspace")}
+                  className="flex items-center gap-1 text-xs text-gray-400 transition hover:text-black"
+                >
+                  Manage <ArrowRight size={11} />
+                </button>
+              </div>
+              <div className="divide-y divide-gray-100">
+                {users.length === 0 && (
+                  <p className="px-5 py-8 text-center text-xs text-gray-400">
+                    Just you for now.
+                  </p>
+                )}
+                {users.slice(0, 5).map((u, i) => (
+                  <div key={u._id || i} className="flex items-center gap-2.5 px-5 py-3">
+                    <div
+                      className="flex h-6 w-6 shrink-0 items-center justify-center text-[10px] font-semibold text-white"
+                      style={{ backgroundColor: PURPLE }}
+                    >
+                      {(u.name || u.email || "?").charAt(0).toUpperCase()}
+                    </div>
+                    <p className="truncate text-xs text-gray-700">{u.name || u.email}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </AppShell>

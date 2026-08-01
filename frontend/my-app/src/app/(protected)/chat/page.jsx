@@ -33,6 +33,7 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [approvingLogId, setApprovingLogId] = useState(null);
+  const [decliningLogId, setDecliningLogId] = useState(null);
   const [historyState, setHistoryState] = useState("loading"); // loading | ready | error
   const scrollRef = useRef(null);
 
@@ -55,10 +56,12 @@ export default function ChatPage() {
         role: m.role,
         text: m.text,
         agentType: m.agentType,
-        requiresApproval: m.requiresApproval,
         toolCalls: m.toolCalls || [],
         logId: m.logId,
-        approvalStatus: m.requiresApproval ? "pending" : null,
+        // Persisted decision is the source of truth now - requiresApproval
+        // flips to false once an action is resolved, so it can't be used
+        // to decide whether to show the card anymore.
+        approvalStatus: m.decision || null,
       }));
 
       setMessages(history.length > 0 ? history : INITIAL_MESSAGES);
@@ -98,7 +101,6 @@ export default function ChatPage() {
           role: "assistant",
           text: data.result || "Sorry, I couldn't process that.",
           agentType: data.agentType,
-          requiresApproval: data.requiresApproval,
           toolCalls: data.toolCalls || [],
           logId: data.logId,
           approvalStatus: data.requiresApproval ? "pending" : null,
@@ -144,13 +146,25 @@ export default function ChatPage() {
     }
   }
 
-  function handleDecline(messageId) {
-    // No decline endpoint exists yet — this just clears the pending state
-    // client-side. The ActionLog entry stays "needs_review" on the backend
-    // unless you add a real decline route later.
+  async function handleDecline(messageId, logId) {
+    setDecliningLogId(logId);
+    // Optimistic update, with rollback on failure below.
     setMessages((prev) =>
       prev.map((m) => (m.id === messageId ? { ...m, approvalStatus: "declined" } : m))
     );
+    try {
+      await axios.post(
+        `${API_URL}/workspaces/${workspaceId}/agent/decline`,
+        { logId },
+        { headers: authHeaders() }
+      );
+    } catch (err) {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, approvalStatus: "pending" } : m))
+      );
+    } finally {
+      setDecliningLogId(null);
+    }
   }
 
   if (!workspaceId) {
@@ -215,8 +229,11 @@ export default function ChatPage() {
                     {msg.text}
                   </div>
 
-                  {/* Pending approval: one card per proposed tool call */}
-                  {msg.requiresApproval && msg.toolCalls?.length > 0 && (
+                  {/* Approval card: renders whenever tool calls exist, regardless
+                      of requiresApproval - that flag flips to false once resolved,
+                      so it can no longer gate visibility. Status comes from the
+                      persisted `decision` field instead. */}
+                  {msg.toolCalls?.length > 0 && msg.approvalStatus && (
                     <div className="mt-2 space-y-2">
                       {msg.toolCalls.map((toolCall, i) => (
                         <div
@@ -235,7 +252,9 @@ export default function ChatPage() {
                               <button
                                 type="button"
                                 onClick={() => handleApprove(msg.id, msg.logId, toolCall)}
-                                disabled={approvingLogId === msg.logId}
+                                disabled={
+                                  approvingLogId === msg.logId || decliningLogId === msg.logId
+                                }
                                 className="flex items-center gap-1 rounded-pill bg-accent px-3 py-1 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-60"
                               >
                                 {approvingLogId === msg.logId ? (
@@ -247,10 +266,17 @@ export default function ChatPage() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => handleDecline(msg.id)}
-                                className="flex items-center gap-1 rounded-pill border border-border px-3 py-1 text-xs font-medium text-muted hover:bg-bg"
+                                onClick={() => handleDecline(msg.id, msg.logId)}
+                                disabled={
+                                  approvingLogId === msg.logId || decliningLogId === msg.logId
+                                }
+                                className="flex items-center gap-1 rounded-pill border border-border px-3 py-1 text-xs font-medium text-muted hover:bg-bg disabled:opacity-60"
                               >
-                                <X size={12} />
+                                {decliningLogId === msg.logId ? (
+                                  <Loader2 size={12} className="animate-spin" />
+                                ) : (
+                                  <X size={12} />
+                                )}
                                 Decline
                               </button>
                             </div>

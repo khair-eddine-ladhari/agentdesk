@@ -103,6 +103,13 @@ def build_known_facts(structured_notes: list) -> str:
     return "\n".join(lines)
 
 
+def _last_assistant_turn(history: list) -> dict | None:
+    for turn in reversed(history or []):
+        if turn.get("role") == "assistant":
+            return turn
+    return None
+
+
 def run_orchestrator(
     query: str,
     namespace: str = None,
@@ -115,17 +122,29 @@ def run_orchestrator(
 
     If `forced_type` is supplied, classification is skipped and the
     request is routed directly to that agent. Otherwise, the query is
-    classified and dispatched to the appropriate specialist agent.
+    classified and dispatched to the appropriate specialist agent -
+    UNLESS the previous assistant turn was the action agent asking a
+    clarifying question (agentType "action", requiresApproval False),
+    in which case we stay on "action" instead of re-classifying. A bare
+    reply like an email address or "just what your hand" has no signal
+    for the classifier to work with and will otherwise get misrouted to
+    chat, orphaning the in-progress action.
     """
-
-    intent = (
-        forced_type
-        if forced_type in VALID_AGENT_TYPES
-        else classify_intent(query)
-    )
-
     history = history or []
     known_facts = build_known_facts(structured_notes or [])
+
+    if forced_type in VALID_AGENT_TYPES:
+        intent = forced_type
+    else:
+        last_turn = _last_assistant_turn(history)
+        if (
+            last_turn
+            and last_turn.get("agentType") == "action"
+            and last_turn.get("requiresApproval") is False
+        ):
+            intent = "action"
+        else:
+            intent = classify_intent(query)
 
     if intent == "chat":
         return run_chat_agent(

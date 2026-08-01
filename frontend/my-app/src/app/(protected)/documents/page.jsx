@@ -31,6 +31,8 @@ export default function DocumentsPage() {
   const [uploadingCount, setUploadingCount] = useState(0);
   const [structuringId, setStructuringId] = useState(null);
   const [structureError, setStructureError] = useState(null);
+  // Keyed by docId so each document's result is remembered independently.
+  const [structuredNotes, setStructuredNotes] = useState({});
   const fileInputRef = useRef(null);
 
   const fetchDocuments = useCallback(async () => {
@@ -68,9 +70,6 @@ export default function DocumentsPage() {
         await axios.post(`${API_URL}/workspaces/${workspaceId}/documents`, formData, {
           headers: { ...authHeaders(), "Content-Type": "multipart/form-data" },
         });
-        // The controller returns the doc (embedded/failed/pending) plus
-        // note/detail/chunkCount depending on what happened — refresh
-        // the list rather than trying to reconstruct doc shape here.
         await fetchDocuments();
       } catch (err) {
         console.error("Upload request failed:", err.response?.data?.error || err.message);
@@ -96,10 +95,10 @@ export default function DocumentsPage() {
         {},
         { headers: authHeaders() }
       );
-      // res.data.note has key_points / action_items / mentioned_dates.
-      // Swap this for whatever you want to do with the result — routing
-      // to a notes view, showing it inline, etc.
-      console.log("Structured note:", res.data.note);
+      setStructuredNotes((prev) => ({ ...prev, [docId]: res.data.note }));
+      // Auto-expand so the result is visible right away instead of
+      // requiring a second click on the row.
+      setSelectedDoc(docId);
     } catch (err) {
       setStructureError(err.response?.data?.error || "Failed to structure document");
     } finally {
@@ -171,19 +170,19 @@ export default function DocumentsPage() {
 
           <div className="divide-y divide-border rounded-card border border-border bg-surface shadow-soft">
             {documents.map((doc) => {
-              // Backend statuses: "pending" | "embedded" | "failed"
               const status = STATUS_CONFIG[doc.status] || STATUS_CONFIG.pending;
               const StatusIcon = status.icon;
               const isExpanded = selectedDoc === doc._id;
+              const note = structuredNotes[doc._id];
 
               return (
                 <div key={doc._id}>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedDoc(isExpanded ? null : doc._id)}
-                    className="flex w-full items-center justify-between gap-4 px-4 py-3.5 text-left"
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex w-full items-center justify-between gap-4 px-4 py-3.5">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDoc(isExpanded ? null : doc._id)}
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                    >
                       <FileText size={16} className="shrink-0 text-muted" />
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium text-ink">
@@ -196,18 +195,36 @@ export default function DocumentsPage() {
                             : ""}
                         </p>
                       </div>
-                    </div>
+                    </button>
 
-                    <span
-                      className={`flex shrink-0 items-center gap-1 rounded-pill px-2.5 py-1 text-xs font-medium ${status.className}`}
-                    >
-                      <StatusIcon
-                        size={12}
-                        className={doc.status === "pending" ? "animate-spin" : ""}
-                      />
-                      {status.label}
-                    </span>
-                  </button>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {doc.status === "embedded" && (
+                        <button
+                          type="button"
+                          onClick={() => handleStructure(doc._id)}
+                          disabled={structuringId === doc._id}
+                          className="flex items-center gap-1.5 rounded-pill bg-accent px-3.5 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+                        >
+                          {structuringId === doc._id ? (
+                            <Loader2 size={13} className="animate-spin" />
+                          ) : (
+                            <Sparkles size={13} />
+                          )}
+                          {structuringId === doc._id ? "Structuring…" : "Structure this"}
+                        </button>
+                      )}
+
+                      <span
+                        className={`flex items-center gap-1 rounded-pill px-2.5 py-1 text-xs font-medium ${status.className}`}
+                      >
+                        <StatusIcon
+                          size={12}
+                          className={doc.status === "pending" ? "animate-spin" : ""}
+                        />
+                        {status.label}
+                      </span>
+                    </div>
+                  </div>
 
                   {isExpanded && (
                     <div className="border-t border-border bg-bg px-4 py-4">
@@ -218,19 +235,51 @@ export default function DocumentsPage() {
                               ? doc.rawText.slice(0, 400)
                               : "No preview text available."}
                           </p>
-                          <button
-                            type="button"
-                            onClick={() => handleStructure(doc._id)}
-                            disabled={structuringId === doc._id}
-                            className="flex items-center gap-1.5 rounded-pill bg-accent px-3.5 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-60"
-                          >
-                            {structuringId === doc._id ? (
-                              <Loader2 size={13} className="animate-spin" />
-                            ) : (
-                              <Sparkles size={13} />
-                            )}
-                            {structuringId === doc._id ? "Structuring…" : "Structure this"}
-                          </button>
+
+                          {note && (
+                            <div className="space-y-3 rounded-card border border-border bg-surface p-3.5">
+                              {note.key_points?.length > 0 && (
+                                <div>
+                                  <p className="mb-1 text-xs font-medium text-ink">Key points</p>
+                                  <ul className="space-y-1 text-xs text-muted">
+                                    {note.key_points.map((point, i) => (
+                                      <li key={i}>• {point}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+
+                              {note.action_items?.length > 0 && (
+                                <div>
+                                  <p className="mb-1 text-xs font-medium text-ink">Action items</p>
+                                  <ul className="space-y-1 text-xs text-muted">
+                                    {note.action_items.map((item, i) => (
+                                      <li key={i}>• {item}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+
+                              {note.mentioned_dates?.length > 0 && (
+                                <div>
+                                  <p className="mb-1 text-xs font-medium text-ink">Dates mentioned</p>
+                                  <ul className="space-y-1 text-xs text-muted">
+                                    {note.mentioned_dates.map((date, i) => (
+                                      <li key={i}>• {date}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+
+                              {!note.key_points?.length &&
+                                !note.action_items?.length &&
+                                !note.mentioned_dates?.length && (
+                                  <p className="text-xs text-muted">
+                                    Nothing structured was found in this document.
+                                  </p>
+                                )}
+                            </div>
+                          )}
                         </>
                       ) : doc.status === "pending" ? (
                         <p className="text-xs text-muted">

@@ -1,4 +1,5 @@
 import os
+import re
 import json
 from langchain_groq import ChatGroq
 
@@ -26,7 +27,16 @@ invent details (names, dates, emails) that weren't given to you. You may use
 conversation history and known workspace facts below to fill in details the
 user referenced but didn't repeat (e.g. "the demo we discussed" -> look up the
 date in known facts), but never invent anything not present in either.
+
+For send_email specifically: the "to" field MUST be a real email address
+(e.g. "baha@company.com"), never a first name, nickname, or username. If the
+user only gives you a name and no email address is available in conversation
+history or known workspace facts, treat the email address as missing required
+info - use "action": "unknown" and ask the user for the recipient's email
+address in "summary". Do not guess or construct an email address from a name.
 """
+
+EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 
 def run_action_agent(query: str, history: list = None, known_facts: str = "") -> dict:
@@ -55,6 +65,7 @@ def run_action_agent(query: str, history: list = None, known_facts: str = "") ->
     response = llm.invoke(messages)
 
     proposed = _parse_json_safely(response.content)
+    proposed = _validate_proposal(proposed)
 
     if proposed.get("action") == "unknown" or "_parse_error" in proposed:
         return {
@@ -77,6 +88,29 @@ def run_action_agent(query: str, history: list = None, known_facts: str = "") ->
             }
         ],
     }
+
+
+def _validate_proposal(proposed: dict) -> dict:
+    """
+    Backstop against the LLM ignoring the 'to' must be an email instruction.
+    Downgrades an otherwise-valid proposal to 'unknown' rather than letting
+    a doomed approval (e.g. to="Baha") reach the UI.
+    """
+    if proposed.get("action") != "send_email":
+        return proposed
+
+    to = proposed.get("parameters", {}).get("to", "")
+    if not EMAIL_RE.match(to):
+        return {
+            "action": "unknown",
+            "summary": (
+                f"I don't have a valid email address for \"{to}\" — "
+                "could you give me their email so I can send it?"
+            ),
+            "parameters": {},
+        }
+
+    return proposed
 
 
 def _parse_json_safely(raw: str) -> dict:

@@ -16,7 +16,7 @@ import {
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/pending-actions", label: "Pending Actions", icon: CheckSquare, badgeKey: "pending" },
+
   { href: "/tasks", label: "Tasks", icon: ListTodo },
   { href: "/meetings", label: "Meetings", icon: CalendarClock },
   { href: "/chat", label: "Chat", icon: MessageSquare },

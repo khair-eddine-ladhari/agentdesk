@@ -25,10 +25,10 @@ export default function MeetingsPage() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`${API_URL}/workspaces/${workspace._id}/meetings`, {
+        const res = await fetch(`${API_URL}/workspaces/${workspace._id}/tasks`, {
           headers: { Authorization: `Bearer ${sessionStorage.getItem("adminToken")}` },
         });
-        if (!res.ok) throw new Error(`Failed to load meetings (${res.status})`);
+        if (!res.ok) throw new Error(`Failed to load tasks (${res.status})`);
         setMeetings(await res.json());
       } catch (err) {
         setError(err.message);

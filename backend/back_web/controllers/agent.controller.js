@@ -4,6 +4,8 @@ const Workspace = require("../models/Workspace");
 const Task = require("../models/Task");
 const Meeting = require("../models/Meeting");
 const StructuredNote = require("../models/StructuredNote");
+const ChatMessage = require("../models/ChatMessage");
+
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL;
 if (!FROM_EMAIL) {
@@ -11,8 +13,6 @@ if (!FROM_EMAIL) {
 }
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8000";
-
-const ChatMessage = require("../models/ChatMessage");
 
 async function callAgent(req, res) {
   try {
@@ -27,7 +27,8 @@ async function callAgent(req, res) {
       return res.status(404).json({ error: "Workspace not found" });
     }
 
-    // Load recent conversation history
+    // Load recent conversation history (most recent N, restored to
+    // chronological order for the prompt)
     const recentMessages = await ChatMessage.find({
       workspace: req.workspaceId,
     })
@@ -65,9 +66,7 @@ async function callAgent(req, res) {
     });
 
     if (!agentRes.ok) {
-      return res
-        .status(502)
-        .json({ error: "Agent service failed to respond" });
+      return res.status(502).json({ error: "Agent service failed to respond" });
     }
 
     const result = await agentRes.json();
@@ -87,6 +86,18 @@ async function callAgent(req, res) {
       });
     }
 
+    // Audit log created FIRST so its _id can be stamped onto the
+    // assistant's ChatMessage below - this is what lets an approval
+    // card be reconstructed after a reload.
+    const log = await ActionLog.create({
+      workspace: req.workspaceId,
+      agentType: result.agentType,
+      summary: result.result.slice(0, 200),
+      status: result.requiresApproval ? "needs_review" : "success",
+      requiresApproval: result.requiresApproval,
+      toolCalls: result.toolCalls,
+    });
+
     // Save chat history
     await ChatMessage.create({
       workspace: req.workspaceId,
@@ -99,16 +110,10 @@ async function callAgent(req, res) {
       role: "assistant",
       content: result.result,
       agentType: result.agentType,
-    });
-
-    // Audit log
-    const log = await ActionLog.create({
-      workspace: req.workspaceId,
-      agentType: result.agentType,
-      summary: result.result.slice(0, 200),
-      status: result.requiresApproval ? "needs_review" : "success",
       requiresApproval: result.requiresApproval,
       toolCalls: result.toolCalls,
+      logId: log._id,
+      decision: result.requiresApproval ? "pending" : null,
     });
 
     res.json({
@@ -122,6 +127,7 @@ async function callAgent(req, res) {
     });
   }
 }
+
 // Executors for each approvable tool. Each one takes the LLM-proposed
 // parameters PLUS the trusted, auth-derived workspaceId/userId - never
 // values pulled from the request body, so an approval request can never
@@ -160,8 +166,6 @@ const EXECUTORS = {
       const [response] = await sgMail.send(message);
       return { statusCode: response.statusCode };
     } catch (err) {
-      // Same principle as the old Python version - don't let a raw
-      // SendGrid exception bubble up unformatted; surface a clean message.
       const detail = err.response?.body?.errors?.[0]?.message || err.message;
       throw new Error(`SendGrid error: ${detail}`);
     }
@@ -198,8 +202,7 @@ async function approveAction(req, res) {
     }
 
     // workspaceId/userId come ONLY from the authenticated request context
-    // (set by requireAuth + requireWorkspaceMembership), never from req.body -
-    // same principle create_task's docstring already called out.
+    // (set by requireAuth + requireWorkspaceMembership), never from req.body.
     const result = await executor(parameters, req.workspaceId, req.userId);
 
     if (logId) {
@@ -207,23 +210,57 @@ async function approveAction(req, res) {
         status: "success",
         approvedBy: req.userId,
       });
+      await ChatMessage.findOneAndUpdate({ logId }, { decision: "approved" });
     }
 
     res.json({ success: true, ...result });
   } catch (err) {
     if (req.body.logId) {
       await ActionLog.findByIdAndUpdate(req.body.logId, { status: "failed" }).catch(() => {});
+      await ChatMessage.findOneAndUpdate(
+        { logId: req.body.logId },
+        { decision: "failed" }
+      ).catch(() => {});
     }
     res.status(400).json({ success: false, error: err.message });
   }
 }
 
+async function declineAction(req, res) {
+  try {
+    const { logId } = req.body;
+    if (!logId) {
+      return res.status(400).json({ error: "logId is required" });
+    }
+
+    const log = await ActionLog.findOneAndUpdate(
+      { _id: logId, workspace: req.workspaceId },
+      { status: "failed", approvedBy: req.userId },
+      { new: true }
+    );
+    if (!log) {
+      return res.status(404).json({ error: "Action not found" });
+    }
+
+    await ChatMessage.findOneAndUpdate({ logId }, { decision: "declined" });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("[declineAction] error:", err);
+    res.status(500).json({ success: false, error: "Failed to decline action" });
+  }
+}
 
 async function getMessages(req, res) {
   try {
+    // Most recent 100, restored to chronological order - matches the
+    // pattern used for agent history above. The previous ascending
+    // sort + limit(100) silently kept only the OLDEST 100 messages in
+    // the workspace, dropping everything after them.
     const messages = await ChatMessage.find({ workspace: req.workspaceId })
-      .sort({ createdAt: 1 })
-      .limit(100);
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .then((msgs) => msgs.reverse());
 
     res.json({
       messages: messages.map((m) => ({
@@ -231,9 +268,10 @@ async function getMessages(req, res) {
         role: m.role,
         text: m.content,
         agentType: m.agentType,
-        // requiresApproval/toolCalls/logId aren't stored on ChatMessage today —
-        // only on ActionLog — so approval cards won't survive a reload yet.
-        // Fine for now; flagged below if you want that fixed too.
+        requiresApproval: m.requiresApproval,
+        toolCalls: m.toolCalls,
+        logId: m.logId,
+        decision: m.decision,
       })),
     });
   } catch (err) {
@@ -242,5 +280,29 @@ async function getMessages(req, res) {
   }
 }
 
-module.exports = { callAgent, approveAction, getMessages };
+async function declineAction(req, res) {
+  try {
+    const { logId } = req.body;
+    if (!logId) {
+      return res.status(400).json({ error: "logId is required" });
+    }
 
+    const log = await ActionLog.findOneAndUpdate(
+      { _id: logId, workspace: req.workspaceId },
+      { status: "failed", approvedBy: req.userId },
+      { new: true }
+    );
+    if (!log) {
+      return res.status(404).json({ error: "Action not found" });
+    }
+
+    await ChatMessage.findOneAndUpdate({ logId }, { decision: "declined" });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("[declineAction] error:", err);
+    res.status(500).json({ success: false, error: "Failed to decline action" });
+  }
+}
+
+module.exports = { callAgent, approveAction, declineAction, getMessages ,declineAction};

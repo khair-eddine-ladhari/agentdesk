@@ -1,0 +1,19 @@
+# Web framework for the /agents/run, /ingest, /health endpoints
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+pydantic==2.10.2
+
+# LLM / agents (ChatGroq used in orchestrator.py, action_agent.py, chat_agent.py)
+langchain==0.3.7
+langchain-groq==0.2.1
+groq==0.13.0
+
+# Vector store + embeddings - raw pinecone SDK used directly in both
+# ingestion_tool.py (.upsert_records) and retrieval_tool.py (.query,
+# .inference.embed with the llama-text-embed-v2 hosted model).
+# pinecone-client is the deprecated legacy package name; `pinecone` is
+# the maintained one and is what "from pinecone import Pinecone" resolves to.
+pinecone==7.3.0
+
+# Config
+python-dotenv==1.0.1

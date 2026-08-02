@@ -6,6 +6,8 @@ import AppShell from "@/components/AppShell";
 import { Loader2, LogOut } from "lucide-react";
 import { useGlobalContext } from "@/components/GlobalContext";
 
+const PURPLE = "#8A05FF";
+
 export default function AccountSettingsPage() {
   const router = useRouter();
   const { user, logout } = useGlobalContext();
@@ -65,22 +67,38 @@ export default function AccountSettingsPage() {
     }
   }
 
- async function handleLogout() {
-   
-    await logout(); // clears sessionStorage + resets user/workspace in context
-    router.push("/");
+  async function handleLogout() {
+    setLoggingOut(true);
+    try {
+      await logout(); // clears sessionStorage + resets user/workspace in context
+      router.push("/");
+    } finally {
+      setLoggingOut(false);
+    }
   }
 
   return (
     <AppShell title="Account Settings">
       <div className="mx-auto max-w-2xl space-y-8">
+        {/* Header */}
+        <div className="flex items-end justify-between border-b border-gray-900 pb-4">
+          <div>
+            <div className="font-mono text-[11px] uppercase tracking-wide text-gray-400 mb-1">
+              Settings
+            </div>
+            <h1 className="text-2xl font-semibold tracking-tight text-black">
+              Account
+            </h1>
+          </div>
+        </div>
+
         {/* Profile */}
         <section>
-          <h2 className="mb-3 text-sm font-medium text-ink">Profile</h2>
-          <div className="rounded-card border border-border bg-surface p-5 shadow-soft">
+          <h2 className="mb-3 text-sm font-medium text-black">Profile</h2>
+          <div className="border border-gray-200 p-5">
             <form onSubmit={handleSaveProfile} className="space-y-4">
               <div>
-                <label htmlFor="name" className="mb-1.5 block text-xs text-muted">
+                <label htmlFor="name" className="mb-1.5 block text-xs text-gray-400">
                   Full name
                 </label>
                 <input
@@ -91,11 +109,11 @@ export default function AccountSettingsPage() {
                     setProfile((p) => ({ ...p, name: e.target.value }));
                     setProfileSaved(false);
                   }}
-                  className="w-full rounded-control border border-border bg-bg px-3.5 py-2.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+                  className="w-full border border-gray-300 px-3.5 py-2.5 text-sm text-black focus:outline-none focus:border-black"
                 />
               </div>
               <div>
-                <label htmlFor="email" className="mb-1.5 block text-xs text-muted">
+                <label htmlFor="email" className="mb-1.5 block text-xs text-gray-400">
                   Email
                 </label>
                 <input
@@ -106,14 +124,15 @@ export default function AccountSettingsPage() {
                     setProfile((p) => ({ ...p, email: e.target.value }));
                     setProfileSaved(false);
                   }}
-                  className="w-full rounded-control border border-border bg-bg px-3.5 py-2.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+                  className="w-full border border-gray-300 px-3.5 py-2.5 text-sm text-black focus:outline-none focus:border-black"
                 />
               </div>
               <div className="flex items-center gap-3">
                 <button
                   type="submit"
                   disabled={profileSaving}
-                  className="flex items-center gap-1.5 rounded-pill bg-accent px-4 py-2.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+                  className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-60"
+                  style={{ backgroundColor: PURPLE }}
                 >
                   {profileSaving && <Loader2 size={13} className="animate-spin" />}
                   {profileSaving ? "Saving..." : profileSaved ? "Saved" : "Save changes"}
@@ -125,11 +144,11 @@ export default function AccountSettingsPage() {
 
         {/* Password */}
         <section>
-          <h2 className="mb-3 text-sm font-medium text-ink">Password</h2>
-          <div className="rounded-card border border-border bg-surface p-5 shadow-soft">
+          <h2 className="mb-3 text-sm font-medium text-black">Password</h2>
+          <div className="border border-gray-200 p-5">
             <form onSubmit={handleChangePassword} className="space-y-4">
               <div>
-                <label htmlFor="current" className="mb-1.5 block text-xs text-muted">
+                <label htmlFor="current" className="mb-1.5 block text-xs text-gray-400">
                   Current password
                 </label>
                 <input
@@ -140,12 +159,12 @@ export default function AccountSettingsPage() {
                   onChange={(e) =>
                     setPasswords((p) => ({ ...p, current: e.target.value }))
                   }
-                  className="w-full rounded-control border border-border bg-bg px-3.5 py-2.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+                  className="w-full border border-gray-300 px-3.5 py-2.5 text-sm text-black focus:outline-none focus:border-black"
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="next" className="mb-1.5 block text-xs text-muted">
+                  <label htmlFor="next" className="mb-1.5 block text-xs text-gray-400">
                     New password
                   </label>
                   <input
@@ -156,11 +175,11 @@ export default function AccountSettingsPage() {
                     onChange={(e) =>
                       setPasswords((p) => ({ ...p, next: e.target.value }))
                     }
-                    className="w-full rounded-control border border-border bg-bg px-3.5 py-2.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+                    className="w-full border border-gray-300 px-3.5 py-2.5 text-sm text-black focus:outline-none focus:border-black"
                   />
                 </div>
                 <div>
-                  <label htmlFor="confirm" className="mb-1.5 block text-xs text-muted">
+                  <label htmlFor="confirm" className="mb-1.5 block text-xs text-gray-400">
                     Confirm new password
                   </label>
                   <input
@@ -171,13 +190,13 @@ export default function AccountSettingsPage() {
                     onChange={(e) =>
                       setPasswords((p) => ({ ...p, confirm: e.target.value }))
                     }
-                    className="w-full rounded-control border border-border bg-bg px-3.5 py-2.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+                    className="w-full border border-gray-300 px-3.5 py-2.5 text-sm text-black focus:outline-none focus:border-black"
                   />
                 </div>
               </div>
 
               {passwordError && (
-                <p className="rounded-control bg-danger-soft px-3 py-2 text-sm text-danger">
+                <p className="border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                   {passwordError}
                 </p>
               )}
@@ -185,7 +204,8 @@ export default function AccountSettingsPage() {
               <button
                 type="submit"
                 disabled={passwordSaving}
-                className="flex items-center gap-1.5 rounded-pill bg-accent px-4 py-2.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+                className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-60"
+                style={{ backgroundColor: PURPLE }}
               >
                 {passwordSaving && <Loader2 size={13} className="animate-spin" />}
                 {passwordSaving ? "Updating..." : passwordSaved ? "Updated" : "Update password"}
@@ -196,10 +216,10 @@ export default function AccountSettingsPage() {
 
         {/* Logout */}
         <section>
-          <div className="flex items-center justify-between rounded-card border border-border bg-surface p-5 shadow-soft">
+          <div className="flex items-center justify-between border border-gray-200 p-5">
             <div>
-              <p className="text-sm font-medium text-ink">Log out</p>
-              <p className="text-xs text-muted">
+              <p className="text-sm font-medium text-black">Log out</p>
+              <p className="text-xs text-gray-400">
                 You'll need to log back in to access this workspace.
               </p>
             </div>
@@ -207,7 +227,7 @@ export default function AccountSettingsPage() {
               type="button"
               onClick={handleLogout}
               disabled={loggingOut}
-              className="flex items-center gap-1.5 rounded-pill border border-border px-4 py-2.5 text-xs font-medium text-ink hover:bg-bg disabled:opacity-60"
+              className="flex items-center gap-1.5 border border-gray-300 px-4 py-2.5 text-xs font-medium text-black hover:bg-gray-50 disabled:opacity-60"
             >
               {loggingOut ? <Loader2 size={13} className="animate-spin" /> : <LogOut size={13} />}
               {loggingOut ? "Logging out..." : "Log out"}

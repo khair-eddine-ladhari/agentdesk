@@ -197,14 +197,7 @@ export default function DashboardPage() {
               </h1>
               <p className="mt-1 font-mono text-xs text-gray-400">{workspace?._id}</p>
             </div>
-            <button
-              onClick={() => router.push("/structured-notes")}
-              className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90"
-              style={{ backgroundColor: "#0a0a0a" }}
-            >
-              <Plus size={14} />
-              New task
-            </button>
+       
           </div>
 
           {/* Stat strip — bordered grid like Render's feature grid */}
@@ -256,10 +249,10 @@ export default function DashboardPage() {
                   >
                     <CheckSquare size={11} />
                   </div>
-                  <h2 className="text-sm font-semibold text-black">Pending tasks</h2>
+                  <h2 className="text-sm font-semibold text-black">Tasks</h2>
                 </div>
                 <button
-                  onClick={() => router.push("/structured-notes")}
+                  onClick={() => router.push("/tasks")}
                   className="flex items-center gap-1 text-xs text-gray-400 transition hover:text-black"
                 >
                   View all <ArrowRight size={11} />
@@ -318,11 +311,7 @@ export default function DashboardPage() {
                     key={meeting._id || i}
                     className="flex items-center gap-3 px-5 py-3.5 transition hover:bg-gray-50"
                   >
-                    <div className="flex w-14 shrink-0 flex-col items-center border border-gray-200 py-1.5">
-                      <span className="font-mono text-xs font-semibold text-black">
-                        {formatTime(meeting.startsAt || meeting.time)}
-                      </span>
-                    </div>
+                  
                     <div className="min-w-0">
                       <p className="truncate text-sm text-black">{meeting.title}</p>
                       <p className="mt-0.5 truncate text-xs text-gray-400">

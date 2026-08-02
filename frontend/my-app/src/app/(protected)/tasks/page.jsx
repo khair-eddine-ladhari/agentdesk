@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import AppShell from "@/components/AppShell";
 import { useGlobalContext } from "@/components/GlobalContext";
-import { Loader2, Users, CalendarClock, History } from "lucide-react";
+import { Loader2, Users, CalendarClock, History, User, Trash2 } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 const PURPLE = "#8A05FF";
@@ -18,6 +18,8 @@ export default function MeetingsPage() {
   const [meetings, setMeetings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+  const [deleteError, setDeleteError] = useState(null);
 
   useEffect(() => {
     if (!workspace?._id) return;
@@ -40,6 +42,31 @@ export default function MeetingsPage() {
     fetchMeetings();
   }, [workspace?._id]);
 
+  async function handleDelete(taskId) {
+    if (!workspace?._id) return;
+    const confirmed = window.confirm("Delete this task? This can't be undone.");
+    if (!confirmed) return;
+
+    setDeletingId(taskId);
+    setDeleteError(null);
+
+    const previous = meetings;
+    setMeetings((prev) => prev.filter((m) => m._id !== taskId)); // optimistic
+
+    try {
+      const res = await fetch(`${API_URL}/workspaces/${workspace._id}/tasks/${taskId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${sessionStorage.getItem("adminToken")}` },
+      });
+      if (!res.ok) throw new Error(`Failed to delete task (${res.status})`);
+    } catch (err) {
+      setMeetings(previous); // rollback on failure
+      setDeleteError(err.message);
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   return (
     <AppShell title="Meetings">
       <div className="min-h-screen bg-white">
@@ -48,7 +75,6 @@ export default function MeetingsPage() {
             <div>
               <div className="font-mono text-[11px] uppercase tracking-wide text-gray-400 mb-1">
                 TASKS
-
               </div>
               <h1 className="text-2xl font-semibold tracking-tight text-black">
                 {meetings.length > 0 ? `${meetings.length} scheduled` : "TASKS"}
@@ -68,6 +94,12 @@ export default function MeetingsPage() {
             </div>
           )}
 
+          {deleteError && (
+            <div className="mb-3 border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              Couldn't delete task: {deleteError}
+            </div>
+          )}
+
           {!loading && meetings.length === 0 && !error && (
             <div className="border border-gray-200 p-12 text-center">
               <p className="text-sm font-medium text-black">No tasks yet</p>
@@ -83,17 +115,42 @@ export default function MeetingsPage() {
                 <div key={meeting._id} className="border border-gray-200">
                   <div className="p-4">
                     <div className="flex items-start justify-between gap-4">
-                      <p className="text-sm font-medium text-black">{meeting.title}</p>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-black">{meeting.title}</p>
+                        {meeting.assignee && (
+                          <p className="mt-1 flex items-center gap-1.5 text-xs text-gray-500">
+                            <User size={12} className="text-gray-400" />
+                        
+                            {meeting.assignee}
+                          </p>
+                        )}
+                      </div>
 
-                      {meeting.time && (
-                        <span
-                          className="flex shrink-0 items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-white"
-                          style={{ backgroundColor: PURPLE }}
+                      <div className="flex shrink-0 items-center gap-2">
+                        {meeting.time && (
+                          <span
+                            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-white"
+                            style={{ backgroundColor: PURPLE }}
+                          >
+                            <CalendarClock size={12} />
+                            {meeting.time}
+                          </span>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(meeting._id)}
+                          disabled={deletingId === meeting._id}
+                          aria-label="Delete task"
+                          className="flex h-7 w-7 items-center justify-center text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
                         >
-                          <CalendarClock size={12} />
-                          {meeting.time}
-                        </span>
-                      )}
+                          {deletingId === meeting._id ? (
+                            <Loader2 size={14} className="animate-spin" />
+                          ) : (
+                            <Trash2 size={14} />
+                          )}
+                        </button>
+                      </div>
                     </div>
 
                     {meeting.attendees?.length > 0 && (

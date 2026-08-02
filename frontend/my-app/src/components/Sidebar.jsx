@@ -11,6 +11,7 @@ import {
   BookOpen,
   Settings,
 } from "lucide-react";
+import { useGlobalContext } from "@/components/GlobalContext";
 
 const PURPLE = "#8A05FF";
 
@@ -23,8 +24,11 @@ const NAV_ITEMS = [
   { href: "/structured-notes", label: "Structured Notes", icon: BookOpen },
 ];
 
-export default function Sidebar({ pendingCount = 0, workspaceName = "Acme Inc." }) {
+export default function Sidebar({ pendingCount = 0 }) {
   const pathname = usePathname();
+  const { workspace } = useGlobalContext();
+
+  const workspaceName = workspace?.name || "Workspace";
 
   return (
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-gray-200 bg-white">
@@ -34,7 +38,7 @@ export default function Sidebar({ pendingCount = 0, workspaceName = "Acme Inc." 
           className="flex h-8 w-8 items-center justify-center text-sm font-semibold text-white"
           style={{ backgroundColor: PURPLE }}
         >
-          {workspaceName.charAt(0)}
+          {workspaceName.charAt(0).toUpperCase()}
         </div>
         <div className="flex flex-col overflow-hidden">
           <span className="truncate text-sm font-medium text-black">

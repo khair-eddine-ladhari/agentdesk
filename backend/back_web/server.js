@@ -12,6 +12,8 @@ const dashboardRoutes = require("./routes/dashboard.routes");
 const actionRoutes = require("./routes/actions");
 const taskRoutes = require("./routes/tasks");
 const meetingRoutes = require("./routes/meetings");
+const deltaskRoutes = require("./routes/tasks_del");
+const delmeetingRoutes = require("./routes/meetings_del");
 
 
 const noteRoutes = require("./routes/note.routes");
@@ -43,6 +45,9 @@ app.use("/api/workspaces", taskRoutes);
 app.use("/api/workspaces", meetingRoutes);
 
 app.use("/api/workspaces", noteRoutes);
+
+app.use("/api/workspaces", deltaskRoutes);
+app.use("/api/workspaces", delmeetingRoutes);
 
 const PORT = process.env.PORT || 5000;
 

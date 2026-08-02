@@ -74,6 +74,9 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const [members, setMembers] = useState([]);
+  const [membersLoading, setMembersLoading] = useState(true);
+
   useEffect(() => {
     if (workspace === undefined) {
       setLoading(true);
@@ -107,6 +110,39 @@ export default function DashboardPage() {
 
     fetchStats();
   }, [workspace]);
+
+  // Team members aren't guaranteed to be in /dashboard/stats previews, so
+  // fetch them the same way the Workspace Settings page does.
+  useEffect(() => {
+    if (!workspace?._id) {
+      setMembersLoading(false);
+      return;
+    }
+
+    async function fetchMembers() {
+      setMembersLoading(true);
+      const token = sessionStorage.getItem("adminToken");
+      const headers = {
+        Authorization: `Bearer ${token}`,
+        "X-Workspace-ID": workspace._id,
+      };
+      try {
+        const res = await axios.get(
+          `${API_URL}/workspaces/${workspace._id}/settings`,
+          { headers }
+        );
+        setMembers(res.data.members || []);
+      } catch (err) {
+        // Fail quietly here — the dashboard already surfaces a top-level
+        // error for stats; the Team panel just falls back to its empty state.
+        setMembers([]);
+      } finally {
+        setMembersLoading(false);
+      }
+    }
+
+    fetchMembers();
+  }, [workspace?._id]);
 
   if (loading) {
     return (
@@ -180,7 +216,6 @@ export default function DashboardPage() {
   const tasks = stats?.previews?.tasks ?? [];
   const meetings = stats?.previews?.meetings ?? [];
   const activity = stats?.previews?.activity ?? stats?.previews?.messages ?? [];
-  const users = stats?.previews?.users ?? [];
 
   return (
     <AppShell title="Dashboard">
@@ -197,7 +232,6 @@ export default function DashboardPage() {
               </h1>
               <p className="mt-1 font-mono text-xs text-gray-400">{workspace?._id}</p>
             </div>
-       
           </div>
 
           {/* Stat strip — bordered grid like Render's feature grid */}
@@ -311,7 +345,6 @@ export default function DashboardPage() {
                     key={meeting._id || i}
                     className="flex items-center gap-3 px-5 py-3.5 transition hover:bg-gray-50"
                   >
-                  
                     <div className="min-w-0">
                       <p className="truncate text-sm text-black">{meeting.title}</p>
                       <p className="mt-0.5 truncate text-xs text-gray-400">
@@ -363,6 +396,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
+            {/* Team panel — fetched independently via /workspaces/{id}/settings */}
             <div className="border border-gray-200">
               <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
                 <div className="flex items-center gap-2">
@@ -382,22 +416,28 @@ export default function DashboardPage() {
                 </button>
               </div>
               <div className="divide-y divide-gray-100">
-                {users.length === 0 && (
+                {membersLoading && (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 size={14} className="animate-spin" style={{ color: PURPLE }} />
+                  </div>
+                )}
+                {!membersLoading && members.length === 0 && (
                   <p className="px-5 py-8 text-center text-xs text-gray-400">
                     Just you for now.
                   </p>
                 )}
-                {users.slice(0, 5).map((u, i) => (
-                  <div key={u._id || i} className="flex items-center gap-2.5 px-5 py-3">
-                    <div
-                      className="flex h-6 w-6 shrink-0 items-center justify-center text-[10px] font-semibold text-white"
-                      style={{ backgroundColor: PURPLE }}
-                    >
-                      {(u.name || u.email || "?").charAt(0).toUpperCase()}
+                {!membersLoading &&
+                  members.slice(0, 5).map((u, i) => (
+                    <div key={u.id || u._id || i} className="flex items-center gap-2.5 px-5 py-3">
+                      <div
+                        className="flex h-6 w-6 shrink-0 items-center justify-center text-[10px] font-semibold text-white"
+                        style={{ backgroundColor: PURPLE }}
+                      >
+                        {(u.name || u.email || "?").charAt(0).toUpperCase()}
+                      </div>
+                      <p className="truncate text-xs text-gray-700">{u.name || u.email}</p>
                     </div>
-                    <p className="truncate text-xs text-gray-700">{u.name || u.email}</p>
-                  </div>
-                ))}
+                  ))}
               </div>
             </div>
           </div>

@@ -24,6 +24,12 @@ const DocumentSchema = new mongoose.Schema(
       default: "pending",
     },
 
+    // Cloudinary storage — set once the buffer upload succeeds in
+    // uploadDocument. Both stay null if extraction/upload never gets there
+    // (e.g. unsupported type, empty file).
+    cloudinaryUrl: { type: String, default: null },
+    cloudinaryPublicId: { type: String, default: null },
+
     // Extracted plain text. select: false keeps it out of list queries
     // (listDocuments) by default — structureDocument explicitly does
     // .select("+rawText") to pull it back in when needed.

@@ -1,7 +1,7 @@
 const path = require("path");
-const fs = require("fs");
 const axios = require("axios");
 const pdfParse = require("pdf-parse");
+const cloudinary = require("../config/cloudinary"); // see note below
 const DocumentModel = require("../models/Document");
 const Workspace = require("../models/Workspace");
 const StructuredNote = require("../models/StructuredNote");
@@ -16,25 +16,40 @@ const EXT_TO_TYPE = {
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8000";
 
-
-
-async function extractText(filePath, fileType) {
+// Now reads from a buffer (req.file.buffer) instead of a disk path —
+// memoryStorage gives us the whole file in memory, nothing to fs.readFileSync.
+async function extractText(buffer, fileType) {
   if (fileType === "txt" || fileType === "md") {
-    return fs.readFileSync(filePath, "utf-8");
+    return buffer.toString("utf-8");
   }
 
   if (fileType === "pdf") {
-    const buffer = fs.readFileSync(filePath);
     const data = await pdfParse(buffer);
     return data.text;
   }
 
   if (fileType === "docx") {
-    const result = await mammoth.extractRawText({ path: filePath });
+    const result = await mammoth.extractRawText({ buffer });
     return result.value;
   }
 
   return null;
+}
+
+// Cloudinary's SDK is disk/callback-oriented by default; this wraps
+// upload_stream in a promise and pipes the buffer into it.
+function uploadBufferToCloudinary(buffer, filename) {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        resource_type: "raw", // required for non-image files (pdf/docx/txt/md)
+        folder: "documents",
+        public_id: `${Date.now()}-${path.parse(filename).name}`,
+      },
+      (err, result) => (err ? reject(err) : resolve(result))
+    );
+    stream.end(buffer);
+  });
 }
 
 async function uploadDocument(req, res) {
@@ -59,7 +74,7 @@ async function uploadDocument(req, res) {
 
     let text;
     try {
-      text = await extractText(req.file.path, fileType);
+      text = await extractText(req.file.buffer, fileType);
     } catch (extractErr) {
       console.error(`[uploadDocument] extraction failed for doc ${doc._id}:`, extractErr.message);
       doc.status = "failed";
@@ -67,7 +82,7 @@ async function uploadDocument(req, res) {
       return res.status(201).json({
         ...doc.toObject(),
         note: "Text extraction failed - the file may be corrupted, encrypted, or a scanned image with no selectable text.",
-        detail: extractErr.message,
+        detail: process.env.NODE_ENV === "production" ? undefined : extractErr.message,
       });
     }
 
@@ -82,6 +97,29 @@ async function uploadDocument(req, res) {
       doc.status = "failed";
       await doc.save();
       return res.status(201).json({ ...doc.toObject(), note: "File was empty" });
+    }
+
+    // Only upload to Cloudinary once we know the file is valid and non-empty —
+    // no point storing something that failed extraction.
+    try {
+      const uploadResult = await uploadBufferToCloudinary(req.file.buffer, req.file.originalname);
+      doc.cloudinaryUrl = uploadResult.secure_url;
+      doc.cloudinaryPublicId = uploadResult.public_id;
+    } catch (cloudErr) {
+      // Temporary verbose logging to diagnose the 403 — logs the FULL error
+      // object (Cloudinary buries the real reason in nested fields, not
+      // just .message). Revert to cloudErr.message once this is resolved.
+      console.error(
+        `[uploadDocument] Cloudinary upload failed for doc ${doc._id}:`,
+        JSON.stringify(cloudErr, Object.getOwnPropertyNames(cloudErr), 2)
+      );
+      doc.status = "failed";
+      await doc.save();
+      return res.status(201).json({
+        ...doc.toObject(),
+        note: "File processed, but storage upload failed",
+        detail: process.env.NODE_ENV === "production" ? undefined : cloudErr.message,
+      });
     }
 
     doc.rawText = text;
@@ -111,7 +149,7 @@ async function uploadDocument(req, res) {
       return res.status(201).json({
         ...doc.toObject(),
         note: "File saved, but embedding failed",
-        detail: ingestErr.message,
+        detail: process.env.NODE_ENV === "production" ? undefined : ingestErr.message,
       });
     }
   } catch (err) {

@@ -1,11 +1,5 @@
 const multer = require("multer");
 const path = require("path");
-const fs = require("fs");
-
-const UPLOAD_DIR = path.join(__dirname, "../../uploads");
-if (!fs.existsSync(UPLOAD_DIR)) {
-  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-}
 
 // Extension AND MIME type must both match — checking only one is spoofable
 // (e.g. renaming malware.exe to malware.pdf passes an extension-only check).
@@ -16,15 +10,10 @@ const ALLOWED_TYPES = {
   ".docx": ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
 };
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
-  filename: (_req, file, cb) => {
-    // Filename is fully generated — the original filename is never used
-    // beyond its extension, so there's no path traversal or injection risk.
-    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    cb(null, `${unique}${path.extname(file.originalname).toLowerCase()}`);
-  },
-});
+// Memory storage instead of disk: Cloudinary's upload_stream needs a buffer
+// (req.file.buffer), not a path on disk. This also means there's no local
+// file to orphan on failure anymore — nothing to fs.unlink().
+const storage = multer.memoryStorage();
 
 function fileFilter(_req, file, cb) {
   const ext = path.extname(file.originalname).toLowerCase();

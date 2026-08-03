@@ -7,7 +7,6 @@ from agents.action_agent import run_action_agent
 from agents.research_agent import run_research_agent
 from agents.chat_agent import run_chat_agent
 
-
 CLASSIFY_PROMPT = """You are a router for a workspace assistant with five specialist agents.
 
 FIRST, if the message is a greeting, thanks, small talk, or fewer than 4 words
@@ -19,39 +18,71 @@ Otherwise, classify into one of:
 - "chat": the user is making casual conversation—a greeting, small talk,
   or a vague/general message that isn't a specific document question,
   messy notes to structure, an action request, or a complex research
-  question.
+  question. This ALSO includes the user thinking out loud or narrating
+  their own plans with no instruction aimed at the agent - e.g. "I have
+  to call the CEO so he can raise more funds" is the user describing
+  what THEY will do, not asking the agent to do anything. The test is:
+  is there something for the agent to execute? If not, it's chat, even
+  if a task, person, or deadline is mentioned.
 
 - "rag": the user is asking a SIMPLE QUESTION answerable directly from
-  documents already stored in their workspace (e.g. "what does our
-  contract say about termination?", "summarize the onboarding doc").
-  Single lookup, single source.
+  documents already stored in THEIR OWN workspace (e.g. "what does our
+  contract say about termination?", "summarize the onboarding doc",
+  "our workspace docs mention our subscription price - find it").
+  Single lookup, single source, and the question is about internal
+  documents specifically.
 
 - "structuring": the user has pasted messy raw text (notes, transcript,
   brainstorm, etc.) and wants it organized into a structured summary,
-  not answered as a question.
+  not answered as a question or acted on. This includes notes that
+  MENTION future steps or follow-ups inside them (e.g. "talked about
+  Q3 budget, need to follow up with finance by Friday, John will send
+  the report") - the signal is that the message is SUMMARIZING what
+  happened or what was discussed, not directly instructing the agent
+  to do something right now. If it reads like "here's what occurred"
+  rather than "please do this", it's structuring, even if the notes
+  contain words like "follow up" or "will send".
 
-- "action": the user wants something DONE—a task created, an email sent,
-  a meeting scheduled, a reminder set, someone assigned to something,
-  or anything followed up on. This includes casual/indirect phrasing,
-  not just explicit commands. Examples that ARE "action":
+- "action": the user wants the AGENT to do something DONE right now—a
+  task created, an email sent, a meeting scheduled, a reminder set,
+  someone assigned to something. This includes casual/indirect phrasing
+  aimed at the agent, not just explicit commands. Examples that ARE
+  "action":
     - "can you set up a call with Sarah next week"
     - "remind me to check the invoice"
-    - "someone should follow up with the vendor"
+    - "someone should follow up with the vendor" (said as a standalone
+      request, not embedded inside a block of notes about a past call)
     - "let's get a meeting on the calendar for the design review"
     - "email the team about the delay"
     - "assign this to Baha"
-  If the message implies something should happen, be scheduled, be sent,
-  or be assigned—even without an explicit verb like "create" or
-  "schedule"—classify it as "action", not "chat".
+  Examples that are NOT "action" despite mentioning tasks or people:
+    - "and i have to call the ceo so he can raise more funds" -> chat
+      (the user is narrating their own plan, not asking the agent for
+      anything)
+    - "talked about Q3 budget, need to follow up with finance by Friday,
+      John will send the report" -> structuring (this is notes
+      describing a past conversation, not a live instruction)
 
-- "research": the question is COMPLEX and requires combining workspace
-  documents with outside web information, performing calculations,
-  or chaining multiple reasoning steps. It must reference an actual topic;
-  never use this for short or vague messages.
+- "research": the question requires information NOT contained in the
+  user's own workspace documents - either purely external/current
+  information (e.g. "what's the latest pricing X announced"), or
+  combining workspace documents with outside web information,
+  performing calculations, or chaining multiple reasoning steps. It
+  must reference an actual topic; never use this for short or vague
+  messages. If the question is about something outside the workspace
+  entirely, that alone qualifies it as research even without a
+  workspace-document angle.
 
-When in doubt between "action" and "chat" specifically: if the message
-references a real task, person, meeting, or deadline in ANY way, prefer
-"action" over "chat".
+When in doubt between "action" and "chat": ask whether there's a clear
+instruction FOR THE AGENT to execute. A mention of a task, person, or
+deadline is not enough on its own if the message is the user narrating
+their own plans rather than asking the agent to do something.
+
+When in doubt between "action" and "structuring": if the message is
+formatted as notes/a recap of a conversation or situation (even in
+first person, even mentioning who will do what), prefer "structuring".
+Only prefer "action" if the user is directly asking the agent to
+execute a specific task right now.
 
 Respond with ONLY one word:
 chat, rag, structuring, action, or research.

@@ -36,9 +36,18 @@ async function callAgent(req, res) {
       .limit(10)
       .then((msgs) => msgs.reverse());
 
+    // agentType/requiresApproval are included here so the orchestrator's
+    // sticky-routing check (stay on "action" if the last assistant turn
+    // was an unresolved action question) can actually see them - without
+    // these two fields that check always saw agentType as undefined and
+    // silently never fired, letting a bare follow-up reply (e.g. just an
+    // email address) get misclassified back to "chat" and orphan the
+    // in-progress action.
     const history = recentMessages.map((m) => ({
       role: m.role,
       content: m.content,
+      agentType: m.agentType,
+      requiresApproval: m.requiresApproval,
     }));
 
     // Load previously structured notes
@@ -280,29 +289,4 @@ async function getMessages(req, res) {
   }
 }
 
-async function declineAction(req, res) {
-  try {
-    const { logId } = req.body;
-    if (!logId) {
-      return res.status(400).json({ error: "logId is required" });
-    }
-
-    const log = await ActionLog.findOneAndUpdate(
-      { _id: logId, workspace: req.workspaceId },
-      { status: "failed", approvedBy: req.userId },
-      { new: true }
-    );
-    if (!log) {
-      return res.status(404).json({ error: "Action not found" });
-    }
-
-    await ChatMessage.findOneAndUpdate({ logId }, { decision: "declined" });
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error("[declineAction] error:", err);
-    res.status(500).json({ success: false, error: "Failed to decline action" });
-  }
-}
-
-module.exports = { callAgent, approveAction, declineAction, getMessages ,declineAction};
+module.exports = { callAgent, approveAction, declineAction, getMessages };

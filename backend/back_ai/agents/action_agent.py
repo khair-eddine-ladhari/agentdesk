@@ -10,6 +10,13 @@ review the contract by Friday", "schedule a meeting with the design team").
 Your job is NOT to perform the action - you only PROPOSE it. A human will review
 and approve or reject your proposal before anything actually happens.
 
+IMPORTANT: Always generate a NEW proposal based ONLY on the user's most recent
+message. If a previous proposal in this conversation was for a different action
+(e.g. send_email), and the user's latest message asks for something else (e.g.
+a meeting), completely ignore the previous action's type and parameters - do
+not reuse or blend them. Only revise a previous proposal if the user is clearly
+asking to modify that SAME action (e.g. "change the time", "also cc Sarah").
+
 Respond with ONLY valid JSON in this exact shape, nothing else:
 {
   "action": "create_task" | "send_email" | "schedule_meeting" | "unknown",
@@ -62,15 +69,16 @@ def run_action_agent(query: str, history: list = None, known_facts: str = "") ->
         messages.append((turn["role"], turn["content"]))
     messages.append(("user", query))
 
-    response = llm.invoke(messages)
-
-    proposed = _parse_json_safely(response.content)
+    proposed = _invoke_with_retry(llm, messages)
     proposed = _validate_proposal(proposed)
 
     if proposed.get("action") == "unknown" or "_parse_error" in proposed:
         return {
             "agentType": "action",
-            "result": proposed.get("summary", "I couldn't determine a clear action from that request."),
+            "result": proposed.get(
+                "summary",
+                "I couldn't determine a clear action from that request - could you rephrase it?",
+            ),
             "sources": None,
             "requiresApproval": False,  # nothing valid to approve
             "toolCalls": None,
@@ -88,6 +96,28 @@ def run_action_agent(query: str, history: list = None, known_facts: str = "") ->
             }
         ],
     }
+
+
+def _invoke_with_retry(llm, messages, max_attempts=3):
+    """
+    Retries on malformed JSON output, same rationale as the research
+    agent's tool-call retry: occasional generation glitches, not a real
+    logic error, and usually clear up on a fresh attempt.
+    """
+    last_result = None
+    for attempt in range(max_attempts):
+        response = llm.invoke(messages)
+        parsed = _parse_json_safely(response.content)
+        if "_parse_error" not in parsed:
+            return parsed
+        last_result = parsed
+        print(f"[action_agent] attempt {attempt + 1}/{max_attempts} - invalid JSON")  # TEMP DEBUG
+
+    # All attempts failed - friendlier message instead of exposing the raw parse error
+    last_result["summary"] = (
+        "I had trouble structuring that request just now - could you try rephrasing it?"
+    )
+    return last_result
 
 
 def _validate_proposal(proposed: dict) -> dict:

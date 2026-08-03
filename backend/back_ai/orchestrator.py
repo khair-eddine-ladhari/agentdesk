@@ -31,12 +31,27 @@ Otherwise, classify into one of:
   not answered as a question.
 
 - "action": the user wants something DONE—a task created, an email sent,
-  a meeting scheduled, etc.
+  a meeting scheduled, a reminder set, someone assigned to something,
+  or anything followed up on. This includes casual/indirect phrasing,
+  not just explicit commands. Examples that ARE "action":
+    - "can you set up a call with Sarah next week"
+    - "remind me to check the invoice"
+    - "someone should follow up with the vendor"
+    - "let's get a meeting on the calendar for the design review"
+    - "email the team about the delay"
+    - "assign this to Baha"
+  If the message implies something should happen, be scheduled, be sent,
+  or be assigned—even without an explicit verb like "create" or
+  "schedule"—classify it as "action", not "chat".
 
 - "research": the question is COMPLEX and requires combining workspace
   documents with outside web information, performing calculations,
   or chaining multiple reasoning steps. It must reference an actual topic;
   never use this for short or vague messages.
+
+When in doubt between "action" and "chat" specifically: if the message
+references a real task, person, meeting, or deadline in ANY way, prefer
+"action" over "chat".
 
 Respond with ONLY one word:
 chat, rag, structuring, action, or research.
@@ -50,6 +65,12 @@ def classify_intent(query: str) -> str:
     Short-circuits obvious greetings and small talk without an LLM call.
     Groq's classification isn't perfectly deterministic, so trivial cases
     like "hi" should always route to the chat agent.
+
+    Only short-circuits on an EXACT greeting match now, not any short
+    message - a bare email/phone/name reply (e.g. answering a pending
+    action's missing-info question) is also short but isn't chat, and
+    was previously being force-routed to "chat" before the LLM (or the
+    sticky-action check in run_orchestrator) ever saw it.
 
     Falls back to "chat" if the LLM returns anything unexpected.
     """
@@ -68,7 +89,7 @@ def classify_intent(query: str) -> str:
         "hiya",
     }
 
-    if stripped in GREETINGS or len(stripped.split()) <= 2:
+    if stripped in GREETINGS:
         return "chat"
 
     llm = ChatGroq(

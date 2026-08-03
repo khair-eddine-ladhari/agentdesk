@@ -51,13 +51,17 @@ _agent = create_react_agent(
 )
 
 
-def _invoke_agent_with_retry(messages, max_attempts=3, backoff_seconds=1.0):
+def _invoke_agent_with_retry(messages, max_attempts=5, backoff_seconds=1.0):
     """
     Groq's tool-calling occasionally emits malformed function-call syntax
     (tool_use_failed, HTTP 400) even at temperature=0 - it's a generation
     glitch, not a logic error, and retrying the same input often succeeds.
     Only retries on that specific failure mode; anything else re-raises
     immediately so real errors aren't hidden behind pointless retries.
+
+    max_attempts bumped from 3 to 5 - on some queries (compound/multi-clause
+    ones especially) Groq's malformed-call rate is high enough that 3
+    attempts wasn't always enough to land a valid call.
     """
     last_exc = None
     for attempt in range(max_attempts):

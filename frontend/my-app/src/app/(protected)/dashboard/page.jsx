@@ -180,7 +180,7 @@ export default function DashboardPage() {
               get started.
             </p>
             <button
-              onClick={() => router.push("/create-workspace")}
+              onClick={() => router.push("/Createworkspacepage")}
               className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white transition hover:opacity-90"
               style={{ backgroundColor: "#0a0a0a" }}
             >

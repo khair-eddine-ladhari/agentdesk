@@ -1,4 +1,9 @@
 require("dotenv").config();
+
+const dns = require("dns");
+
+dns.setServers(["8.8.8.8", "1.1.1.1"]);
+
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
@@ -17,6 +22,8 @@ const deltaskRoutes = require("./routes/tasks_del");
 const delmeetingRoutes = require("./routes/meetings_del");
 
 const noteRoutes = require("./routes/note.routes");
+
+
 // ...
 
 const app = express();

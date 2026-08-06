@@ -66,17 +66,33 @@ def run_agent(payload: AgentRequest):
         raise HTTPException(status_code=400, detail="query must not be empty")
 
     try:
-        return run_orchestrator(
-    payload.query,
-    payload.namespace,
-    forced_type=payload.agentType,
-    history=[turn.dict() for turn in payload.history],
-    structured_notes=[note.dict() for note in payload.structuredNotes],
-)
-    except Exception as exc:
-        print(f"[agents.run] error: {exc}")
-        raise HTTPException(status_code=500, detail="Agent run failed") from exc
+        print("[agents.run] Request received")
+        print(f"[agents.run] Query: {payload.query}")
+        print(f"[agents.run] Namespace: {payload.namespace}")
+        print(f"[agents.run] Agent type: {payload.agentType}")
 
+        result = run_orchestrator(
+            payload.query,
+            payload.namespace,
+            forced_type=payload.agentType,
+            history=[turn.dict() for turn in payload.history],
+            structured_notes=[note.dict() for note in payload.structuredNotes],
+        )
+
+        print("[agents.run] Agent completed successfully")
+
+        return result
+
+    except Exception as exc:
+        print(f"[agents.run] ERROR TYPE: {type(exc).__name__}")
+        print(f"[agents.run] ERROR MESSAGE: {exc}")
+        import traceback
+        traceback.print_exc()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Agent run failed: {str(exc)}"
+        ) from exc
 
 @app.post("/ingest", response_model=IngestResponse)
 def ingest(payload: IngestRequest):

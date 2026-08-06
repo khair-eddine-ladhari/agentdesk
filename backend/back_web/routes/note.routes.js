@@ -2,7 +2,7 @@ const { Router } = require("express");
 const { requireAuth } = require("../middleware/auth");
 const { requireWorkspaceMembership } = require("../middleware/tenantScope");
 
-const { listStructuredNotes } = require("../controllers/note.controller");
+const { listStructuredNotes } = require("../controllers/Note.controller");
 
 const router = Router();
 

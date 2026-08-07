@@ -66,8 +66,8 @@ export default function DocumentsPage() {
 
       try {
         await axios.post(`${API_URL}/workspaces/${workspaceId}/documents`, formData, {
-          headers: { ...authHeaders(), "Content-Type": "multipart/form-data" },
-        });
+  headers: { ...authHeaders() }, // بلاش تحط Content-Type، أكسيوس/البراوزر يحطوها بروحهم مع الـ boundary الصحيح
+});
         await fetchDocuments();
       } catch (err) {
         console.error("Upload request failed:", err.response?.data?.error || err.message);

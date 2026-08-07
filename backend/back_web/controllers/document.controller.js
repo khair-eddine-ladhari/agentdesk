@@ -143,7 +143,11 @@ async function uploadDocument(req, res) {
         chunkCount: data.chunkCount,
       });
     } catch (ingestErr) {
-      console.error(`[uploadDocument] ingest failed for doc ${doc._id}:`, ingestErr.message);
+        console.error(`[uploadDocument] ingest failed for doc ${doc._id}:`);
+  console.error("  message:", ingestErr.message);
+  console.error("  code:", ingestErr.code);
+  console.error("  status:", ingestErr.response?.status);
+  console.error("  data:", JSON.stringify(ingestErr.response?.data));
       doc.status = "failed";
       await doc.save();
       return res.status(201).json({

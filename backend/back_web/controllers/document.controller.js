@@ -14,7 +14,7 @@ const EXT_TO_TYPE = {
   ".docx": "docx",
 };
 
-const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:8000";
+const AI_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8000";
 
 // Now reads from a buffer (req.file.buffer) instead of a disk path —
 // memoryStorage gives us the whole file in memory, nothing to fs.readFileSync.

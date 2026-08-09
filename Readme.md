@@ -201,9 +201,14 @@ AgentDesk/
 
 **`back_web`**
 ```
-MONGODB_URI=
+MONGO_URI=
+MONGO_DB_NAME=
+JWT_SECRET=
 CLIENT_URL=              # frontend origin, for CORS
 AGENT_SERVICE_URL=       # back_ai base URL, e.g. http://localhost:8000
+CLOUDINARY_CLOUD_NAME=
+CLOUDINARY_API_KEY=
+CLOUDINARY_API_SECRET=
 SENDGRID_API_KEY=
 SENDGRID_FROM_EMAIL=
 PORT=5001
@@ -213,7 +218,10 @@ NODE_ENV=development|production
 **`back_ai`**
 ```
 GROQ_API_KEY=
-BACKEND_ORIGIN=          # back_web origin, for CORS (server-to-server only)
+PINECONE_INDEX_NAME=
+LANGCHAIN_TRACING_V2=    # enables LangSmith tracing
+LANGCHAIN_API_KEY=
+LANGCHAIN_PROJECT=       # LangSmith project name for traces/eval runs
 ```
 
 **Frontend**

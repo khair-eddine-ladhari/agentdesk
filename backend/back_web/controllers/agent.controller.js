@@ -14,6 +14,16 @@ if (!FROM_EMAIL) {
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8000";
 
+// Guards against both missing values AND unparseable ones - `new
+// Date(x).toISOString()` throws RangeError on an Invalid Date, so a
+// bare `m.time ? ... : null` check isn't enough if the stored value
+// isn't something Date can actually parse.
+function toIsoOrNull(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 async function callAgent(req, res) {
   try {
     const { query, agentType } = req.body;
@@ -58,12 +68,48 @@ async function callAgent(req, res) {
       .limit(20)
       .select("key_points action_items mentioned_dates");
 
+    // Load upcoming meetings + open tasks so the summarize agent has
+    // real data to work with. Field names here are mapped to match
+    // what agents/tools/summary_tool.py expects (title/attendees/
+    // start_time and title/assignee/due_date) - adjust the query/
+    // mapping below if the actual Mongo schema uses different field
+    // names. toIsoOrNull guards against both missing AND malformed
+    // date values, since some existing records have an unparseable
+    // `time`/`dueDate` that previously crashed this whole route.
+   const upcomingMeetings = await Meeting.find({
+  workspace: req.workspaceId,
+})
+  .sort({ createdAt: -1 })
+  .limit(20)
+  .lean();
+
+const meetings = upcomingMeetings.map((m) => ({
+  title: m.title,
+  attendees: m.attendees || [],
+  start_time: m.time || null,   // pass the free-text string straight through
+}));
+console.log("[callAgent] upcoming meetings:", meetings);
+
+   const openTasks = await Task.find({
+  workspace: req.workspaceId,
+  status: { $ne: "done" },
+})
+  .lean();
+
+const tasks = openTasks.map((t) => ({
+  title: t.title,
+  assignee: t.assignee || null,
+  due_date: t.dueDate || null,   // free-text string, pass through as-is
+}));
+console.log("[callAgent] open tasks:", tasks);
     const payload = {
       query,
       namespace: workspace.pineconeNamespace,
       agentType,
       history,
       structuredNotes,
+      meetings,
+      tasks,
     };
 
     const agentRes = await fetch(`${AGENT_SERVICE_URL}/agents/run`, {

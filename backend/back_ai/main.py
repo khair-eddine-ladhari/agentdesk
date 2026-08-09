@@ -58,7 +58,8 @@ class AgentRequest(BaseModel):
     agentType: str | None = None
     history: list[ChatTurn] = []
     structuredNotes: list[StructuredNoteSummary] = []
-
+    meetings: list[dict] = []
+    tasks: list[dict] = []
     
 @app.post("/agents/run", response_model=AgentResponse)
 def run_agent(payload: AgentRequest):
@@ -70,6 +71,7 @@ def run_agent(payload: AgentRequest):
         print(f"[agents.run] Query: {payload.query}")
         print(f"[agents.run] Namespace: {payload.namespace}")
         print(f"[agents.run] Agent type: {payload.agentType}")
+        # <-- add this
 
         result = run_orchestrator(
             payload.query,
@@ -77,6 +79,8 @@ def run_agent(payload: AgentRequest):
             forced_type=payload.agentType,
             history=[turn.dict() for turn in payload.history],
             structured_notes=[note.dict() for note in payload.structuredNotes],
+            meetings=payload.meetings,
+            tasks=payload.tasks,
         )
 
         print("[agents.run] Agent completed successfully")

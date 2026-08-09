@@ -4,7 +4,7 @@ from langchain_groq import ChatGroq
 from agents.rag_agent import run_rag_agent
 from agents.structuring_agent import run_structuring_agent
 from agents.action_agent import run_action_agent
-from agents.research_agent import run_research_agent
+from agents.summery_agent import run_summarize_agent
 from agents.chat_agent import run_chat_agent
 
 CLASSIFY_PROMPT = """You are a router for a workspace assistant with five specialist agents.
@@ -17,13 +17,13 @@ Otherwise, classify into one of:
 
 - "chat": the user is making casual conversation—a greeting, small talk,
   or a vague/general message that isn't a specific document question,
-  messy notes to structure, an action request, or a complex research
-  question. This ALSO includes the user thinking out loud or narrating
-  their own plans with no instruction aimed at the agent - e.g. "I have
-  to call the CEO so he can raise more funds" is the user describing
-  what THEY will do, not asking the agent to do anything. The test is:
-  is there something for the agent to execute? If not, it's chat, even
-  if a task, person, or deadline is mentioned.
+  messy notes to structure, an action request, or a meeting-prep question.
+  This ALSO includes the user thinking out loud or narrating their own
+  plans with no instruction aimed at the agent - e.g. "I have to call the
+  CEO so he can raise more funds" is the user describing what THEY will
+  do, not asking the agent to do anything. The test is: is there
+  something for the agent to execute? If not, it's chat, even if a task,
+  person, or deadline is mentioned.
 
 - "rag": the user is asking a SIMPLE QUESTION answerable directly from
   documents already stored in THEIR OWN workspace (e.g. "what does our
@@ -63,15 +63,14 @@ Otherwise, classify into one of:
       John will send the report" -> structuring (this is notes
       describing a past conversation, not a live instruction)
 
-- "research": the question requires information NOT contained in the
-  user's own workspace documents - either purely external/current
-  information (e.g. "what's the latest pricing X announced"), or
-  combining workspace documents with outside web information,
-  performing calculations, or chaining multiple reasoning steps. It
-  must reference an actual topic; never use this for short or vague
-  messages. If the question is about something outside the workspace
-  entirely, that alone qualifies it as research even without a
-  workspace-document angle.
+- "summarize": the user wants their upcoming meetings summarized or
+  wants help prepping for them - combining meeting details already
+  loaded for this workspace with relevant workspace documents and
+  related open tasks (e.g. "summarize my next meetings", "what's coming
+  up this week", "prep me for my meetings", "what do I need before my
+  call with Sarah"). This is about the user's OWN upcoming meetings and
+  tasks, not general document lookup (that's "rag") and not external
+  web information - this agent has no web search or calculation ability.
 
 When in doubt between "action" and "chat": ask whether there's a clear
 instruction FOR THE AGENT to execute. A mention of a task, person, or
@@ -85,10 +84,10 @@ Only prefer "action" if the user is directly asking the agent to
 execute a specific task right now.
 
 Respond with ONLY one word:
-chat, rag, structuring, action, or research.
+chat, rag, structuring, action, or summarize.
 """
 
-VALID_AGENT_TYPES = {"chat", "rag", "structuring", "action", "research"}
+VALID_AGENT_TYPES = {"chat", "rag", "structuring", "action", "summarize"}
 
 
 def classify_intent(query: str) -> str:
@@ -168,6 +167,8 @@ def run_orchestrator(
     forced_type: str = None,
     history: list = None,
     structured_notes: list = None,
+    meetings: list = None,
+    tasks: list = None,
 ) -> dict:
     """
     Main entry point for the agent system.
@@ -181,6 +182,10 @@ def run_orchestrator(
     reply like an email address or "just what your hand" has no signal
     for the classifier to work with and will otherwise get misrouted to
     chat, orphaning the in-progress action.
+
+    `meetings`/`tasks` are only used by the "summarize" branch - pass
+    them through from the trusted request payload (not something the
+    LLM should ever fill in itself).
     """
     history = history or []
     known_facts = build_known_facts(structured_notes or [])
@@ -197,6 +202,7 @@ def run_orchestrator(
             intent = "action"
         else:
             intent = classify_intent(query)
+    print(f"[orchestrator] resolved intent: {intent}")   # add this
 
     if intent == "chat":
         return run_chat_agent(
@@ -228,10 +234,12 @@ def run_orchestrator(
     if intent == "structuring":
         return run_structuring_agent(query)
 
-    if intent == "research":
-        return run_research_agent(
+    if intent == "summarize":
+        return run_summarize_agent(
             query,
-            namespace,
+            namespace=namespace,
+            meetings=meetings,
+            tasks=tasks,
             history=history,
             known_facts=known_facts,
         )

@@ -8,6 +8,9 @@ import { Loader2 } from "lucide-react";
 import { GlobalContext } from "@/components/GlobalContext";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
+const PURPLE = "#8A05FF";
+const PURPLE_HOVER = "#7A00E6";
+const PURPLE_RING = "rgba(138, 5, 255, 0.3)";
 
 export default function CreateWorkspacePage() {
   const { setWorkspace } = useContext(GlobalContext);
@@ -51,7 +54,7 @@ export default function CreateWorkspacePage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-bg px-4">
-      <div className="w-full max-w-sm rounded-card border border-border bg-surface p-6 shadow-soft">
+      <div className="w-full max-w-sm border border-border bg-surface p-6 shadow-soft">
         <h1 className="text-lg font-semibold text-ink">Create your workspace</h1>
         <p className="mt-1 text-sm text-muted">
           This is where your team's tasks, documents, and chats will live.
@@ -72,7 +75,10 @@ export default function CreateWorkspacePage() {
                 setError("");
               }}
               placeholder="Acme Consulting"
-              className="w-full rounded-control border border-border bg-bg px-3.5 py-2.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+              className="w-full border border-border bg-bg px-3.5 py-2.5 text-sm text-ink focus:outline-none focus:ring-2"
+              style={{ "--tw-ring-color": PURPLE_RING }}
+              onFocus={(e) => (e.target.style.borderColor = PURPLE)}
+              onBlur={(e) => (e.target.style.borderColor = "")}
             />
           </div>
 
@@ -81,7 +87,12 @@ export default function CreateWorkspacePage() {
           <button
             type="submit"
             disabled={creating || !name.trim()}
-            className="flex w-full items-center justify-center gap-1.5 rounded-pill bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+            className="flex w-full items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+            style={{ backgroundColor: PURPLE }}
+            onMouseEnter={(e) => {
+              if (!creating && name.trim()) e.target.style.backgroundColor = PURPLE_HOVER;
+            }}
+            onMouseLeave={(e) => (e.target.style.backgroundColor = PURPLE)}
           >
             {creating && <Loader2 size={14} className="animate-spin" />}
             {creating ? "Creating..." : "Create workspace"}

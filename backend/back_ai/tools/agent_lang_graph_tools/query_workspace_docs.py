@@ -1,5 +1,18 @@
 from langchain_core.tools import tool
-from tools.retrieval_tool import retrieve
+
+# Replace this with your real vector-store/DB lookup.
+# Must return a list of dicts shaped like: {"source": str, "text": str}
+def retrieve(query: str, namespace: str) -> list[dict]:
+    """
+    Core retrieval function - queries the vector store / doc index for the
+    given workspace namespace and returns the most relevant chunks.
+    Not exposed to the LLM directly; wrapped below as `query_workspace_docs`
+    and reused directly by other tools (e.g. summarize_upcoming_meetings).
+    """
+    # e.g.:
+    # results = vector_store.similarity_search(query, namespace=namespace, k=5)
+    # return [{"source": r.metadata["source"], "text": r.page_content} for r in results]
+    raise NotImplementedError("Wire this up to your actual vector store / retriever")
 
 
 @tool

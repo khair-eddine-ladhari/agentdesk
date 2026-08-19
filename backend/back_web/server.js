@@ -24,6 +24,7 @@ const delmeetingRoutes = require("./routes/meetings_del");
 const noteRoutes = require("./routes/note.routes");
 
 
+
 // ...
 
 const app = express();
@@ -82,6 +83,8 @@ app.use("/api/workspaces", noteRoutes);
 
 app.use("/api/workspaces", deltaskRoutes);
 app.use("/api/workspaces", delmeetingRoutes);
+
+app.use("/api/workspaces/:workspaceId/shopping", require("./routes/shopping.routes"));
 
 // --- 404 handler for unmatched routes ---
 app.use((req, res) => {

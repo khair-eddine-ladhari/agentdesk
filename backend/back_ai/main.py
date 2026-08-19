@@ -8,6 +8,13 @@ from pydantic import BaseModel
 from orchestrator import run_orchestrator
 from ingestion_tool import ingest_document
 
+from datetime import datetime, timedelta
+
+# additions to back_ai/main.py
+from agents.shopping_agent import run_product_search
+from tenacity import RetryError
+import uuid
+
 
 app = FastAPI(title="Workspace Agents Service")
 
@@ -60,6 +67,26 @@ class AgentRequest(BaseModel):
     structuredNotes: list[StructuredNoteSummary] = []
     meetings: list[dict] = []
     tasks: list[dict] = []
+
+
+
+
+
+
+
+
+
+
+
+class ShoppingFlowRequest(BaseModel):
+    query: str
+    session_id: str | None = None
+    session_state: dict | None = None
+
+class ShoppingFlowResponse(BaseModel):
+    session_id: str
+    answer: str
+    session_state: dict
     
 @app.post("/agents/run", response_model=AgentResponse)
 def run_agent(payload: AgentRequest):
@@ -121,6 +148,53 @@ def ingest(payload: IngestRequest):
     except Exception as exc:
         print(f"[ingest] error: {exc}")
         raise HTTPException(status_code=500, detail="Ingestion failed") from exc
+
+
+
+
+# {session_id: {"turns": [...], "last_used": datetime}}
+_sessions: dict[str, dict] = {}
+_SESSION_TTL = timedelta(hours=2)
+
+def _cleanup_old_sessions():
+    cutoff = datetime.utcnow() - _SESSION_TTL
+    expired = [sid for sid, s in _sessions.items() if s["last_used"] < cutoff]
+    for sid in expired:
+        del _sessions[sid]
+
+@app.post("/shopping/flow", response_model=ShoppingFlowResponse)
+def shopping_flow(req: ShoppingFlowRequest):
+    _cleanup_old_sessions()
+
+    session_id = req.session_id or str(uuid.uuid4())
+    session = _sessions.setdefault(session_id, {"turns": [], "last_used": datetime.utcnow()})
+    prior_turns = session["turns"]
+
+    try:
+        answer = run_product_search(req.query, history=prior_turns)
+    except RetryError:
+        raise HTTPException(status_code=503, detail="Rate-limited, try again shortly.")
+    except Exception:
+        logger.exception("run_product_search failed for session=%s", session_id)
+        raise HTTPException(status_code=500, detail="Product search failed.")
+
+    session["turns"].append({"query": req.query, "answer": answer})
+    session["last_used"] = datetime.utcnow()
+
+    return ShoppingFlowResponse(
+        session_id=session_id,
+        answer=answer,
+        session_state={"turns": session["turns"]},  # لا يزال يُعاد للتوافق مع الواجهة الأمامية
+    )
+
+
+
+
+
+
+
+
+
 
 
 @app.get("/health")

@@ -9,6 +9,7 @@ import {
   MessageSquare,
   FileText,
   BookOpen,
+  ShoppingCart,
   Settings,
 } from "lucide-react";
 import { useGlobalContext } from "@/components/GlobalContext";
@@ -20,10 +21,10 @@ const NAV_ITEMS = [
   { href: "/tasks", label: "Tasks", icon: ListTodo, badgeKey: "pending" },
   { href: "/meetings", label: "Meetings", icon: CalendarClock },
   { href: "/chat", label: "Chat", icon: MessageSquare },
+  { href: "/shopping", label: "Shopping", icon: ShoppingCart },
   { href: "/documents", label: "Documents", icon: FileText },
   { href: "/structured-notes", label: "Structured Notes", icon: BookOpen },
 ];
-
 export default function Sidebar({ pendingCount = 0 }) {
   const pathname = usePathname();
   const { workspace } = useGlobalContext();

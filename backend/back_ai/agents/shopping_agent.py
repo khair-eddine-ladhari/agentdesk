@@ -25,7 +25,7 @@ drop data. Calling the tools directly in Python removes that failure
 mode completely — the comparator now always receives exactly what
 SerpApi returned, with no lossy paraphrase step in between.
 
-INTENT CLASSIFICATION (SEARCH vs. CHAT):
+INTENT CLASSIFICATION (META / EXPLAIN / SEARCH / CHAT):
 Before any of the above runs at all, not every incoming message is a
 product search. Greetings ("hi"), thanks, small talk, or an
 accidentally-submitted UI placeholder string used to be sent straight
@@ -46,27 +46,62 @@ role/goal/backstory or task orchestration overhead). It runs
 unconditionally at the top of run_product_search(), *before*
 _resolve_query(), on the RAW query plus the last prior turn (if any).
 
-It's a three-way classification (META / SEARCH / CHAT), not a plain
-SEARCH/CHAT binary, because an earlier two-way version created a new
-ordering bug of its own: classifying before _resolve_query() ran
-misjudged genuine follow-ups like "are you sure" as CHAT (nothing
-about that phrase alone signals "product search"), while classifying
-after _resolve_query() ran meant a question ABOUT the conversation
-itself — e.g. "do you remember my last question" — got rewritten by
-_resolve_query() into a standalone product search first (since that
-function's whole job is turning things into search queries) and then
-correctly, but wrongly, classified as SEARCH. Giving the classifier
-the prior turn as context up front, in one call, lets it recognize
-META questions and genuine SEARCH follow-ups correctly without either
-ordering conflict — only SEARCH-classified queries go on to
-_resolve_query() afterwards. META questions are answered directly
-from `history` by _answer_meta_question(), deterministically (no LLM
-generation of the answer content, to avoid paraphrasing/misstating
-what was actually asked before).
+It's a four-way classification (META / EXPLAIN / SEARCH / CHAT), not a
+plain SEARCH/CHAT binary, because of two separate bugs found in
+production, each fixed by carving a new category out of what used to
+be lumped into SEARCH:
 
-Like _resolve_query(), this fails open: if the classifier call errors
-(e.g. rate-limited), we default to SEARCH rather than risk wrongly
-blocking a real query.
+  1. META vs. SEARCH ordering bug (fixed first): classifying before
+     _resolve_query() ran misjudged genuine follow-ups like "are you
+     sure" as CHAT (nothing about that phrase alone signals "product
+     search"), while classifying after _resolve_query() ran meant a
+     question ABOUT the conversation itself — e.g. "do you remember my
+     last question" — got rewritten by _resolve_query() into a
+     standalone product search first (since that function's whole job
+     is turning things into search queries) and then correctly, but
+     wrongly, classified as SEARCH. Giving the classifier the prior
+     turn as context up front, in one call, lets it recognize META
+     questions and genuine SEARCH follow-ups correctly without either
+     ordering conflict.
+
+  2. EXPLAIN vs. SEARCH bug (fixed second, observed in production):
+     a follow-up like "why is this laptop the best one" was being
+     classified as SEARCH (reasonably — it IS a follow-up referring to
+     the prior recommendation) and handed to _resolve_query(), whose
+     ONLY tool is "rewrite into a new search query." But a "why"
+     question about a recommendation that was already justified in the
+     prior turn's answer needs no new data at all — the previous
+     answer's recommendation paragraph already contains the reasoning.
+     _resolve_query() had no way to express "don't search, just quote
+     what I already said," so it rewrote "why is this laptop the best
+     one" into a keyword search like "2026 HP Laptop Store B review"
+     and sent THAT to SerpApi/Amazon/eBay/Walmart — which have no
+     "review" content type, so it came back with more product listings
+     instead of any reasoning, and the comparator correctly (but
+     uselessly) reported "Relevant data found: no" to a question that
+     was never answerable by searching in the first place.
+
+     EXPLAIN is the fix: a follow-up asking to justify, elaborate on,
+     or explain the reasoning behind the recommendation JUST given is
+     answered deterministically straight from the prior turn's answer
+     text by _answer_explain_question(), the same way META is answered
+     by _answer_meta_question() — no search, no rewrite, no comparator
+     LLM call, and therefore no chance of drifting onto a different,
+     unrelated product the way the eBay-listing rewrite did. This is
+     distinct from a genuine new-attribute follow-up like "is it good
+     for gaming" or "which one has better battery life," which SEARCH
+     still handles correctly, since those attributes generally aren't
+     already sitting in the prior answer and do need a fresh, targeted
+     search.
+
+Only SEARCH-classified queries go on to _resolve_query() afterwards.
+META and EXPLAIN are both answered directly from `history`,
+deterministically (no LLM generation of the answer content, to avoid
+paraphrasing/misstating what was actually asked or said before).
+
+Like _resolve_query(), the classifier fails open: if the classifier
+call errors (e.g. rate-limited), we default to SEARCH rather than risk
+wrongly blocking a real query.
 
 FOLLOW-UP / HISTORY HANDLING:
 main.py stores each turn's query+answer in session_state and passes
@@ -82,7 +117,59 @@ either rewrites the new question into a standalone query that names
 the single recommended prior product, or returns it unchanged if it
 wasn't actually a follow-up. This keeps the fix isolated to one small
 step — the store-search tools and the comparator agent are both
-otherwise untouched.
+otherwise untouched. Note this function is now only reachable for
+genuine SEARCH-classified follow-ups — see the EXPLAIN note above for
+why "why" questions no longer reach it at all.
+
+BUG FIX (prior-answer truncation): the prior turn's answer text fed
+into the rewrite prompt used to be truncated with a plain head-slice,
+answer[:_MAX_PRIOR_ANSWER_CHARS]. A full comparator answer is a
+multi-row markdown table FOLLOWED BY the "Relevant data found: yes/no"
+line and the actual recommendation paragraph — and the table alone
+routinely exceeds _MAX_PRIOR_ANSWER_CHARS on its own. That meant the
+one sentence that actually says which product was recommended (the
+part a follow-up like "why is this one the best" needs) was reliably
+the part getting cut off, while the rewrite model was left staring at
+a truncated table with no recommendation to anchor on — so it would
+grab some other product that merely looked salient in the table and
+rewrite the follow-up against THAT instead. The observed failure: a
+prior answer recommending a Walmart listing got rewritten into a
+search for an unrelated eBay HP listing that was never the pick,
+because the Walmart recommendation sentence had already been sliced
+off before the rewrite prompt was built.
+
+Fixed by _extract_prior_answer_context() below: instead of blindly
+slicing from the front, it looks for the literal "Relevant data
+found:" marker (the same literal marker compare_task requires in its
+output — see COMPARATOR RELEVANCE CHECK below) and, if present, keeps
+everything from that marker onward (which is exactly the
+recommendation paragraph, always the load-bearing part for a
+follow-up) plus a bit of leading context. If the marker isn't found
+for some reason (e.g. a META/CHAT answer got passed in, or the format
+changes), it falls back to keeping the *tail* of the answer rather
+than the head, since the recommendation — when present at all — is
+always written last. _answer_explain_question() below reuses the same
+marker-based extraction for the same reason: the reasoning worth
+quoting back to the user is the part after the marker, not the raw
+table.
+
+COSMETIC FIX (EXPLAIN reply used to leak the internal marker line):
+_answer_explain_question() originally returned everything from the
+_RELEVANCE_MARKER onward verbatim, which meant the literal line
+"Relevant data found: yes" (a machine-readable flag meant for
+_sanity_check_relevance_claim() and log/assert purposes, not for
+end users) was shown to the user inside the EXPLAIN reply, e.g.:
+
+    Here's my reasoning from before:
+
+    Relevant data found: yes
+
+    The best pick is the 15.6" Laptop from Store C...
+
+That's harmless but confusing filler the user never asked to see.
+_answer_explain_question() now strips the marker+yes/no line itself
+after locating it, so only the actual recommendation prose is quoted
+back.
 
 COMPARATOR RELEVANCE CHECK:
 Rewriting the query correctly (e.g. to "ASUS Chromebook CX15 battery
@@ -108,16 +195,20 @@ independent, non-LLM check on top of it (see that function's
 docstring).
 
 DETERMINISTIC GUARDS (added on top of the prompt-only version):
-Three of the behaviors above were originally *only* prompt
+Several of the behaviors above were originally *only* prompt
 instructions to the comparator LLM — which means a bad response from
 the (free-tier, small) model could silently violate them with nothing
 to catch it. These are now enforced in plain Python before/around the
 LLM call, so they no longer depend on the model reliably following
 instructions:
-  - _all_empty()              -> all-stores-empty case
-  - _looks_like_placeholder() -> fake/placeholder listing detection
+  - _all_empty()               -> all-stores-empty case
+  - _looks_like_placeholder()  -> fake/placeholder listing detection
   - _sanity_check_relevance_claim() -> catches a "yes" that isn't
     actually backed by any query-relevant text in the output
+  - _answer_meta_question() / _answer_explain_question() -> answer
+    straight from history text instead of asking an LLM to recall or
+    re-justify something it already said, which risks paraphrasing or
+    drifting
 
 Entry point: run_product_search(query, history=None) -> str
 """
@@ -169,7 +260,38 @@ GROQ_MODEL = os.environ.get("GROQ_MODEL", "groq/qwen/qwen3.6-27b")
 # feed into the rewrite prompt. We only need enough for the model to
 # identify which product "which one" refers to, not the whole table
 # verbatim — and staying small matters on Groq's free-tier TPM budget.
+#
+# NOTE: this is a character budget, not a "keep the first N chars"
+# instruction — see _extract_prior_answer_context() for how it's
+# actually applied. The recommendation sentence (always near the end
+# of a real answer) must survive this budget, not just whatever
+# happens to be first.
 _MAX_PRIOR_ANSWER_CHARS = 1200
+
+# How much context to keep *before* the "Relevant data found:" marker
+# when extracting the relevant slice of a prior answer, so the rewrite
+# model still sees a bit of the table (e.g. the winning row) rather
+# than only the bare recommendation sentence with zero surrounding
+# context.
+_PRIOR_ANSWER_LEAD_CONTEXT_CHARS = 300
+
+# Literal marker the comparator task is required to emit before any
+# recommendation text (see build_crew()'s compare_task and the
+# COMPARATOR RELEVANCE CHECK section in the module docstring). Reused
+# here by _extract_prior_answer_context() and
+# _answer_explain_question() to find the load-bearing part of a prior
+# answer, and by _find_last_search_turn() (via _SEARCH_ANSWER_MARKERS
+# below) to identify genuine SEARCH-path turns.
+_RELEVANCE_MARKER = "Relevant data found:"
+
+# Matches the marker plus its yes/no value and any trailing
+# whitespace/newlines, e.g. "Relevant data found: yes\n\n". Used by
+# _answer_explain_question() to strip this internal, machine-readable
+# line out of what's shown to the user — see the COSMETIC FIX section
+# in the module docstring.
+_RELEVANCE_MARKER_LINE_RE = re.compile(
+    rf"^{re.escape(_RELEVANCE_MARKER)}\s*(?:yes|no)\s*", re.IGNORECASE
+)
 
 # Fallback response returned when _classify_intent() decides the
 # message isn't a product search at all. Kept as a module-level
@@ -178,6 +300,14 @@ _MAX_PRIOR_ANSWER_CHARS = 1200
 _NON_SEARCH_REPLY = (
     'Hi! Ask me to find and compare products — e.g. '
     '"best budget laptops under $500".'
+)
+
+# Fallback response for an EXPLAIN-classified question when there's no
+# prior SEARCH turn to explain (e.g. it's literally the first message,
+# or history only contains CHAT/META turns).
+_NO_PRIOR_RECOMMENDATION_REPLY = (
+    "I haven't made a recommendation yet — ask me to search for a product first, "
+    "and I can explain my reasoning afterward."
 )
 
 # Patterns that indicate a store's search text is empty / no results,
@@ -249,44 +379,47 @@ def _llm(model: str | None = None, max_tokens: int = 2200) -> LLM:
 # Marker substrings unique to a genuine SEARCH-path answer (produced
 # either by compare_task's required output format, or by the
 # deterministic "no products found" / "all stores empty" message in
-# run_product_search). CHAT (_NON_SEARCH_REPLY) and META
-# (_answer_meta_question) replies are fixed strings that never contain
-# either, so checking for these is a reliable, non-LLM way to tell
-# "was this turn's answer actually a product search result?" from
-# history alone, without changing what's stored in `history` or
-# main.py's API contract.
-_SEARCH_ANSWER_MARKERS = ("Relevant data found:", "No products were found")
+# run_product_search). CHAT (_NON_SEARCH_REPLY), META
+# (_answer_meta_question), and EXPLAIN (_answer_explain_question)
+# replies are all either fixed strings or quotes of a prior SEARCH
+# turn, and never independently introduce either marker, so checking
+# for these is a reliable, non-LLM way to tell "was this turn's answer
+# actually a product search result?" from history alone, without
+# changing what's stored in `history` or main.py's API contract.
+_SEARCH_ANSWER_MARKERS = (_RELEVANCE_MARKER, "No products were found")
 
 
 def _find_last_search_turn(history: list[dict] | None) -> dict | None:
     """
     Return the most recent turn in `history` whose answer was a real
-    SEARCH-path result, skipping over any CHAT or META turns in
-    between — or None if there isn't one.
+    SEARCH-path result, skipping over any CHAT, META, or EXPLAIN turns
+    in between — or None if there isn't one.
 
     WHY THIS EXISTS: history[-1] is simply the most recently completed
-    turn, regardless of what kind it was. Once CHAT and META turns
+    turn, regardless of what kind it was. Once CHAT/META/EXPLAIN turns
     started being appended to history too (main.py appends every
     turn's query+answer unconditionally, not just SEARCH ones), a
     sequence like:
         1. "best budget laptops under $500"   (SEARCH, real results)
         2. "hi"                               (CHAT)
         3. "do you remember my last question"  (META)
-        4. "why is this pc the best one"       (intended as a
-                                                 follow-up to turn 1's
-                                                 laptop recommendation)
+        4. "why is this pc the best one"       (EXPLAIN, referring
+                                                 back to turn 1)
+        5. "is it good for gaming"             (SEARCH follow-up,
+                                                 should still refer
+                                                 back to turn 1)
     meant _resolve_query() and _classify_intent(), which both blindly
-    read history[-1] as "the previous question," saw turn 3 (the META
-    exchange about "hi") instead of turn 1 (the actual laptop
-    recommendation) when resolving turn 4. The laptop context was
-    still sitting in `history`, just not at the very end of it, so it
-    got silently ignored and "this pc" was searched fresh with no
-    connection to what the user actually meant.
+    read history[-1] as "the previous question," would see turn 4 (an
+    EXPLAIN exchange with no fresh product data of its own) instead of
+    turn 1 (the actual laptop recommendation) when resolving turn 5.
+    The laptop context was still sitting in `history`, just not at the
+    very end of it, so it got silently ignored.
 
     This function walks backward from the end of `history` and returns
     the last turn that looks like a genuine SEARCH result, so follow-up
-    resolution and meta-answers stay anchored to the last real product
-    context even after CHAT/META turns happened in between.
+    resolution, meta-answers, and explain-answers all stay anchored to
+    the last real product context even after CHAT/META/EXPLAIN turns
+    happened in between.
     """
     if not history:
         return None
@@ -297,48 +430,108 @@ def _find_last_search_turn(history: list[dict] | None) -> dict | None:
     return None
 
 
+def _extract_prior_answer_context(answer: str) -> str:
+    """
+    Return the slice of a prior SEARCH-turn answer that's actually
+    useful for resolving a follow-up question, bounded to roughly
+    _MAX_PRIOR_ANSWER_CHARS.
+
+    BUG THIS FIXES: an earlier version of this logic was a plain
+    head-slice, answer[:_MAX_PRIOR_ANSWER_CHARS]. A real comparator
+    answer is a markdown table (often several hundred to 1000+ chars
+    on its own for a 9-row table) FOLLOWED BY the "Relevant data
+    found: yes/no" line and the actual recommendation paragraph. A
+    head-slice at 1200 chars reliably cut the answer off partway
+    through the table — before ever reaching the one sentence that
+    says which product was recommended and why. Fed that truncated
+    input, the rewrite LLM had nothing to anchor "which one" / "this
+    one" against, and would grab whatever product looked salient in
+    the partial table instead of the one that was actually
+    recommended — producing a rewritten query for the WRONG product
+    entirely (observed: a Walmart recommendation got silently
+    replaced with an unrelated eBay listing in the rewrite).
+
+    FIX: search for the literal _RELEVANCE_MARKER ("Relevant data
+    found:") that compare_task requires immediately before the
+    recommendation paragraph. If found, keep from
+    _PRIOR_ANSWER_LEAD_CONTEXT_CHARS before that marker through the
+    end of the answer — i.e. a bit of table context plus the entire
+    recommendation, which is exactly the part a follow-up needs, and
+    is capped to _MAX_PRIOR_ANSWER_CHARS from the end so it still
+    respects the original token/size budget.
+
+    If the marker isn't present (answer is empty, or was somehow not
+    a real comparator answer despite being classified as a SEARCH
+    turn), fall back to keeping the TAIL of the answer rather than the
+    head — the recommendation, when present at all, is always written
+    last, so the tail is a strictly better default than the head even
+    without the marker to anchor on.
+    """
+    if not answer:
+        return answer
+
+    idx = answer.find(_RELEVANCE_MARKER)
+    if idx == -1:
+        # No marker found — fall back to tail, not head, since any
+        # recommendation text is always written last.
+        return answer[-_MAX_PRIOR_ANSWER_CHARS:]
+
+    start = max(0, idx - _PRIOR_ANSWER_LEAD_CONTEXT_CHARS)
+    context = answer[start:]
+    # Still respect the overall size budget, trimming from the front
+    # of this already-relevant slice if needed (never from the back,
+    # which would cut off the recommendation again).
+    if len(context) > _MAX_PRIOR_ANSWER_CHARS:
+        context = context[-_MAX_PRIOR_ANSWER_CHARS:]
+    return context
+
+
 def _classify_intent(query: str, history: list[dict] | None) -> str:
     """
-    Classify `query` into exactly one of three categories, given the
-    most recent prior turn (if any) for context:
+    Classify `query` into exactly one of four categories, given the
+    most recent prior SEARCH turn (if any) for context:
 
-      "META"   - the message is asking about the conversation itself
-                 (e.g. "do you remember my last question", "what did
-                 I ask you previously", "what was your last answer").
-                 This must NOT be resolved into a product search or
-                 sent to SerpApi at all — it's answered directly from
-                 `history`, deterministically, by
-                 _answer_meta_question() in run_product_search().
+      "META"    - the message is asking about the conversation itself
+                  (e.g. "do you remember my last question", "what did
+                  I ask you previously", "what was your last answer").
+                  Answered directly from `history` by
+                  _answer_meta_question() — no search.
 
-      "SEARCH" - a product search, whether a fresh one ("best budget
-                 laptops under $500") or a genuine follow-up that only
-                 makes sense with context ("which one has better
-                 battery life", "are you sure").
+      "EXPLAIN" - the message is asking you to justify, elaborate on,
+                  or explain the reasoning behind the recommendation
+                  you JUST gave (e.g. "why is this the best one",
+                  "why did you pick that one", "explain your
+                  reasoning") — NOT asking about a new product
+                  attribute that hasn't already been discussed. If the
+                  previous answer's recommendation paragraph already
+                  contains the "why," this is EXPLAIN, not SEARCH.
+                  Answered directly from `history` by
+                  _answer_explain_question() — no search, no rewrite.
 
-      "CHAT"   - normal conversation unrelated to shopping or to the
-                 conversation history: greetings, thanks, small talk,
-                 or an accidentally-submitted UI placeholder string.
+      "SEARCH"  - a product search, whether a fresh one ("best budget
+                  laptops under $500") or a genuine follow-up that
+                  needs NEW data not already in the previous answer
+                  ("which one has better battery life", "is it good
+                  for gaming", "what about a cheaper one", "are you
+                  sure" when re-verification implies re-checking
+                  something).
 
-    WHY THIS IS A SINGLE THREE-WAY CALL, GIVEN HISTORY UP FRONT,
-    INSTEAD OF classify-then-resolve OR resolve-then-classify:
-    Two earlier versions of this function were tried and both had a
-    real failure mode:
-      - Classifying on the RAW query before _resolve_query() ran meant
-        genuine follow-ups like "are you sure" read as context-free
-        CHAT (nothing about that phrase alone says "product search"),
-        so they got wrongly short-circuited before _resolve_query()
-        ever got a chance to explain them via the prior turn.
-      - Classifying AFTER _resolve_query() ran meant a META question
-        like "do you remember my last question" got rewritten by
-        _resolve_query() into a standalone product search query first
-        (since that function's whole job is "turn this into a search
-        query"), and by the time classification ran, it was already
-        looking at rewritten search text and correctly (but wrongly,
-        from the user's actual intent) called it SEARCH.
-    Giving the classifier the raw query AND the last turn up front, in
-    one call, avoids the ordering problem entirely: it decides META vs.
-    SEARCH vs. CHAT before any rewriting happens, and only SEARCH
-    results go on to _resolve_query() afterwards.
+      "CHAT"    - normal conversation unrelated to shopping or to the
+                  conversation history: greetings, thanks, small talk,
+                  or an accidentally-submitted UI placeholder string.
+
+    WHY THIS IS A SINGLE FOUR-WAY CALL, GIVEN HISTORY UP FRONT:
+    Two separate ordering/conflation bugs were found in production,
+    each fixed by pulling a new category out of what used to be
+    lumped into SEARCH — see the module docstring's INTENT
+    CLASSIFICATION section for both incidents in detail. In short:
+    classifying on the raw query before resolving follow-ups, or
+    after, both failed to distinguish "needs new data" from "asking
+    about something already said." Giving the classifier the raw
+    query AND the last SEARCH turn up front, in one call, lets it
+    make all three distinctions (META / EXPLAIN / SEARCH-new-data) at
+    once, before any rewriting happens. Only SEARCH results go on to
+    _resolve_query() afterwards.
 
     Like the rest of this module's LLM calls, this is a single
     LLM.call(), not a CrewAI Agent/Task/Crew, and fails open to
@@ -353,7 +546,14 @@ def _classify_intent(query: str, history: list[dict] | None) -> str:
     last_search_turn = _find_last_search_turn(history)
     if last_search_turn:
         prior_query = last_search_turn.get("query", "")
-        context_block = f'Previous product-related question: "{prior_query}"\n'
+        prior_reasoning = _extract_prior_answer_context(
+            last_search_turn.get("answer", "")
+        )
+        context_block = (
+            f'Previous product-related question: "{prior_query}"\n'
+            f"Previous answer's conclusion/reasoning (may be partial):\n"
+            f"{prior_reasoning}\n"
+        )
     else:
         context_block = "There is no previous product-related question in this conversation yet.\n"
 
@@ -365,22 +565,28 @@ def _classify_intent(query: str, history: list[dict] | None) -> str:
         "you remember, what the user asked before, or what your last answer was "
         "(\"do you remember my last question\", \"what did I ask you previously\", "
         "\"what was your last answer\").\n\n"
+        "EXPLAIN - the message is asking you to justify, elaborate on, or explain the "
+        "reasoning behind the recommendation you just gave above, where that reasoning "
+        "is ALREADY present in the previous answer's conclusion shown above "
+        "(\"why is this the best one\", \"why did you pick that\", \"explain your "
+        "reasoning\", \"why not the other one\"). This is NOT asking for a new product "
+        "attribute or new data that isn't already in the previous answer.\n\n"
         "SEARCH - a request to search for or compare a product (laptops, headphones, "
-        "prices, brands, specs, etc.), OR a follow-up that only makes sense in light "
-        "of the previous question above (\"which one\", \"are you sure\", \"is it "
-        "good for gaming\", \"what about a cheaper one\").\n\n"
+        "prices, brands, specs, etc.), OR a follow-up that needs NEW information not "
+        "already present in the previous answer above (\"which one has the best "
+        "battery life\", \"is it good for gaming\", \"what about a cheaper one\").\n\n"
         "CHAT - normal conversation unrelated to shopping and not about the "
         "conversation history: greetings, thanks, small talk, or placeholder/"
         "instructional text like \"Ask me to find and compare products...\".\n\n"
-        "Reply with EXACTLY one word: META, SEARCH, or CHAT. No punctuation, no "
-        "explanation."
+        "Reply with EXACTLY one word: META, EXPLAIN, SEARCH, or CHAT. No punctuation, "
+        "no explanation."
     )
 
     try:
         classify_llm = _llm(GROQ_MODEL, max_tokens=10)
         response = classify_llm.call(messages=[{"role": "user", "content": prompt}])
         result = _strip_thinking(str(response)).strip().upper()
-        for label in ("META", "SEARCH", "CHAT"):
+        for label in ("META", "EXPLAIN", "SEARCH", "CHAT"):
             if label in result:
                 return label
         return "SEARCH"  # unrecognized output -> fail open to search
@@ -419,6 +625,81 @@ def _answer_meta_question(history: list[dict] | None) -> str:
         f'Yes — your previous question was: "{prior_query}". '
         "Ask me to search again, or ask a follow-up about those results."
     )
+
+
+def _answer_explain_question(history: list[dict] | None) -> str:
+    """
+    Deterministically answer an EXPLAIN-classified question ("why is
+    this the best one", "why did you pick that") directly from the
+    last real SEARCH turn's answer, with no LLM call and no new
+    search involved.
+
+    WHY THIS EXISTS (bug it fixes): before EXPLAIN existed, a question
+    like "why is this laptop the best one" was classified as SEARCH,
+    which sent it to _resolve_query() — a function whose only tool is
+    "rewrite this into a new search query." Since a "why" question
+    isn't a request for new product data, the rewrite model reached
+    for whatever it could turn into search keywords (observed: "2026
+    HP Laptop Store B review"), which was then sent to
+    Amazon/eBay/Walmart — stores that have no "review" content type at
+    all. The search came back with unrelated product listings instead
+    of any reasoning, and the comparator correctly reported "Relevant
+    data found: no" to a question that was never answerable by
+    searching in the first place: the reasoning the user actually
+    wanted was already sitting, verbatim, in the previous turn's
+    answer.
+
+    This function fixes that by never touching search at all: it finds
+    the last real SEARCH turn (_find_last_search_turn, so it correctly
+    skips over any CHAT/META/EXPLAIN turns that happened in between),
+    extracts the recommendation/reasoning portion of that turn's answer
+    using the same marker-based logic as _extract_prior_answer_context
+    (everything from "Relevant data found:" onward — the exact
+    sentence(s) that contain the "why"), and returns it directly,
+    with a short framing line. No LLM regeneration, so there's no risk
+    of the explanation drifting, being paraphrased incorrectly, or (as
+    in the bug above) silently swapping in a different product.
+
+    COSMETIC FIX: the marker line itself ("Relevant data found:
+    yes"/"no") is stripped out of what's quoted back — it's an
+    internal flag for _sanity_check_relevance_claim() and log/assert
+    purposes, not something the user needs to see. Without this strip,
+    a real reply looked like:
+
+        Here's my reasoning from before:
+
+        Relevant data found: yes
+
+        The best pick is the 15.6" Laptop from Store C...
+
+    which is harmless but confusing filler. _RELEVANCE_MARKER_LINE_RE
+    removes just that one line (marker + yes/no + trailing whitespace)
+    from the front of the extracted slice, leaving only the actual
+    recommendation prose.
+    """
+    last_turn = _find_last_search_turn(history)
+    if not last_turn:
+        return _NO_PRIOR_RECOMMENDATION_REPLY
+
+    answer = last_turn.get("answer", "")
+    idx = answer.find(_RELEVANCE_MARKER)
+    if idx == -1:
+        # Shouldn't normally happen for a turn that matched
+        # _SEARCH_ANSWER_MARKERS via "No products were found" instead
+        # of the relevance marker — in that case there was no
+        # recommendation to begin with.
+        return _NO_PRIOR_RECOMMENDATION_REPLY
+
+    reasoning = answer[idx:].strip()
+    reasoning = _RELEVANCE_MARKER_LINE_RE.sub("", reasoning).strip()
+
+    if not reasoning:
+        # Marker was present but nothing followed it (shouldn't happen
+        # given compare_task's required output format, but guard
+        # against an empty quote looking like a silent failure).
+        return _NO_PRIOR_RECOMMENDATION_REPLY
+
+    return f"Here's my reasoning from before:\n\n{reasoning}"
 
 
 def _run_searches(query: str) -> dict[str, str]:
@@ -485,7 +766,7 @@ def _filter_placeholder_results(search_results: dict[str, str]) -> dict[str, str
 def _resolve_query(query: str, history: list[dict] | None) -> str:
     """
     Resolve a possibly-context-dependent follow-up query into a
-    standalone one, using only the most recent prior turn.
+    standalone one, using only the most recent prior SEARCH turn.
 
     Examples:
       history has a turn about laptops, query = "which one has the
@@ -499,31 +780,40 @@ def _resolve_query(query: str, history: list[dict] | None) -> str:
     the whole search on a rewrite failure.
 
     NOTE: this function intentionally does NOT also do intent
-    classification (META / SEARCH / CHAT) — by the time this runs,
-    _classify_intent() has already run on the raw query and confirmed
-    it's SEARCH, so only genuine (or already-confirmed) search queries
-    ever reach this function. See _classify_intent()'s docstring for
-    why classification has to happen first, as a separate call, rather
-    than being folded into this rewrite prompt.
+    classification (META / EXPLAIN / SEARCH / CHAT) — by the time this
+    runs, _classify_intent() has already run on the raw query and
+    confirmed it's SEARCH, so only genuine new-data search queries
+    ever reach this function. In particular, "why"-style follow-ups
+    that don't need new data are now classified as EXPLAIN and
+    answered by _answer_explain_question() WITHOUT ever reaching this
+    function — see that function's docstring for the bug this
+    prevents (a "why" question used to be rewritten into a nonsensical
+    search here, e.g. "... review", which no store engine can satisfy).
 
     NOTE: uses _find_last_search_turn(history), not history[-1]. Once
-    CHAT and META turns started being stored in `history` too (every
-    turn gets appended in main.py, not just SEARCH ones), history[-1]
-    could be a CHAT or META exchange with no product content in it
-    (e.g. "hi" or "do you remember my last question"). Resolving a
-    genuine follow-up like "why is this pc the best one" against that
-    kind of turn had nothing to rewrite against, so the real prior
-    product context (e.g. a laptop recommended two turns earlier) got
-    silently dropped. Anchoring on the last real SEARCH turn instead
-    keeps follow-up resolution working even when CHAT/META turns
-    happened in between.
+    CHAT/META/EXPLAIN turns started being stored in `history` too
+    (every turn gets appended in main.py, not just SEARCH ones),
+    history[-1] could be a CHAT/META/EXPLAIN exchange with no new
+    product content in it (e.g. "hi" or "why is this the best one").
+    Resolving a genuine follow-up like "is it good for gaming" against
+    that kind of turn had nothing useful to rewrite against, so the
+    real prior product context (e.g. a laptop recommended two turns
+    earlier) got silently dropped. Anchoring on the last real SEARCH
+    turn instead keeps follow-up resolution working even when
+    CHAT/META/EXPLAIN turns happened in between.
+
+    NOTE: the prior answer is passed through
+    _extract_prior_answer_context(), not a plain head-slice — see that
+    function's docstring for the bug this fixes (a head-slice was
+    cutting off the recommendation sentence itself on long tables,
+    causing follow-ups to get resolved against the wrong product).
     """
     last_turn = _find_last_search_turn(history)
     if not last_turn:
         return query
 
     prior_query = last_turn.get("query", "")
-    prior_answer = last_turn.get("answer", "")[:_MAX_PRIOR_ANSWER_CHARS]
+    prior_answer = _extract_prior_answer_context(last_turn.get("answer", ""))
 
     if not prior_query and not prior_answer:
         return query
@@ -531,7 +821,8 @@ def _resolve_query(query: str, history: list[dict] | None) -> str:
     rewrite_prompt = (
         "You rewrite follow-up shopping questions into standalone search queries.\n\n"
         f"Previous user query: {prior_query}\n"
-        f"Previous answer (may be truncated):\n{prior_answer}\n\n"
+        f"Previous answer (may be truncated, but the recommendation/conclusion, if "
+        f"any, is preserved in full):\n{prior_answer}\n\n"
         f'New question: "{query}"\n\n'
         "If the new question refers back to something from the previous answer (e.g. it "
         "says \"which one\", \"that one\", \"the first option\", \"is it good for X\", or "
@@ -611,7 +902,7 @@ def build_crew(query: str, search_results: dict[str, str]) -> Crew:
             f"The user's question was: '{query}'.\n\n"
             "You MUST structure your output in exactly this order:\n\n"
             "1. The markdown comparison table (see expected_output for columns).\n"
-            "2. A line starting with exactly 'Relevant data found: ' followed by 'yes' "
+            f"2. A line starting with exactly '{_RELEVANCE_MARKER} ' followed by 'yes' "
             "or 'no' — answering whether the Key Features text above actually contains "
             "information relevant to what was asked (e.g. for a battery life question, "
             "does any listing mention battery capacity, mAh, Wh, or hours of use — not "
@@ -635,7 +926,7 @@ def build_crew(query: str, search_results: dict[str, str]) -> Crew:
         expected_output="A markdown comparison table with columns: Store, Product, Price, "
                          "Link, Key Features — where Link is the full clickable URL for each "
                          "product exactly as given above. Then a line reading exactly "
-                         "'Relevant data found: yes' or 'Relevant data found: no'. Then ONE "
+                         f"'{_RELEVANCE_MARKER} yes' or '{_RELEVANCE_MARKER} no'. Then ONE "
                          "short paragraph (2-3 sentences, no lists): if yes, the single best "
                          "pick, its link, and a brief reason why; if no, a clear statement "
                          "that the requested information wasn't found in these results "
@@ -667,7 +958,9 @@ def _sanity_check_relevance_claim(query: str, result_text: str) -> str:
     self-report. No overlap found -> warn; overlap found, or the
     claim is 'no' -> pass through unchanged.
     """
-    match = re.search(r"Relevant data found:\s*(yes|no)", result_text, re.IGNORECASE)
+    match = re.search(
+        rf"{re.escape(_RELEVANCE_MARKER)}\s*(yes|no)", result_text, re.IGNORECASE
+    )
     if not match or match.group(1).lower() != "yes":
         return result_text
 
@@ -686,7 +979,7 @@ def _sanity_check_relevance_claim(query: str, result_text: str) -> str:
     if query_terms and not any(term in text_lower for term in query_terms):
         warning = (
             "\n\n⚠️ **Automated check**: the comparator marked this as "
-            "'Relevant data found: yes', but none of the query terms "
+            f"'{_RELEVANCE_MARKER} yes', but none of the query terms "
             f"({', '.join(sorted(query_terms))}) appear anywhere in the output. "
             "This may be a false positive — verify manually before trusting this "
             "recommendation."
@@ -720,25 +1013,32 @@ def run_product_search(query: str, history: list[dict] | None = None) -> str:
     None/[] for a fresh, context-free search.
 
     Before anything else, _classify_intent() looks at the RAW query
-    plus the last prior turn (if any) and sorts it into META, SEARCH,
-    or CHAT in one pass:
-      - META  -> answered directly from `history` by
-                 _answer_meta_question(), deterministically, with no
-                 search and no comparator LLM call at all (e.g. "do
-                 you remember my last question").
-      - CHAT  -> short-circuits with a canned prompt (_NON_SEARCH_REPLY)
-                 and never reaches SerpApi (e.g. "hi").
-      - SEARCH -> only this path continues on to _resolve_query(), so
-                 a genuine follow-up like "which one has the best
-                 battery life" or "are you sure" gets rewritten against
-                 the prior turn before searching.
+    plus the last prior SEARCH turn (if any) and sorts it into META,
+    EXPLAIN, SEARCH, or CHAT in one pass:
+      - META    -> answered directly from `history` by
+                   _answer_meta_question(), deterministically, with no
+                   search and no comparator LLM call at all (e.g. "do
+                   you remember my last question").
+      - EXPLAIN -> answered directly from `history` by
+                   _answer_explain_question(), deterministically, with
+                   no search and no comparator LLM call at all (e.g.
+                   "why is this the best one") — see that function's
+                   docstring for the production bug this fixes (such
+                   questions used to be rewritten into a nonsensical
+                   store search like "... review").
+      - CHAT    -> short-circuits with a canned prompt
+                   (_NON_SEARCH_REPLY) and never reaches SerpApi (e.g.
+                   "hi").
+      - SEARCH  -> only this path continues on to _resolve_query(), so
+                   a genuine follow-up that needs new data, like
+                   "which one has the best battery life" or "is it
+                   good for gaming", gets rewritten against the prior
+                   turn before searching.
     Giving the classifier history context up front (rather than
-    classifying before or after _resolve_query() runs) avoids an
-    ordering conflict: classifying pre-resolve alone couldn't tell a
-    context-dependent SEARCH follow-up from CHAT, and classifying
-    post-resolve alone couldn't tell a META question from SEARCH once
-    _resolve_query() had already rewritten it into a search query. See
-    _classify_intent()'s docstring for the full history of why.
+    classifying before or after _resolve_query() runs, and rather than
+    lumping "why" questions into SEARCH) avoids the ordering and
+    conflation bugs described in the module docstring's INTENT
+    CLASSIFICATION section.
 
     Placeholder/fake-looking store results are filtered out in Python
     before the comparator ever sees them (_filter_placeholder_results),
@@ -757,6 +1057,10 @@ def run_product_search(query: str, history: list[dict] | None = None) -> str:
     if intent == "META":
         logger.info("Classified as meta-question, answering from history: %r", query)
         return _answer_meta_question(history)
+
+    if intent == "EXPLAIN":
+        logger.info("Classified as explain-question, answering from history: %r", query)
+        return _answer_explain_question(history)
 
     if intent == "CHAT":
         logger.info("Classified as non-search chat, skipping search: %r", query)

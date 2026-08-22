@@ -27,9 +27,10 @@ def run_chat_agent(query: str, history: list = None, known_facts: str = "") -> d
     in your documents" dead-end response.
     """
     llm = ChatGroq(
-        model="llama-3.3-70b-versatile",
+        model="qwen/qwen3.6-27b",
         groq_api_key=os.environ.get("GROQ_API_KEY"),
-        temperature=0.4,  # a bit more natural/conversational than the task agents
+        temperature=0.4, 
+        reasoning_format="hidden", # a bit more natural/conversational than the task agents
     )
 
     system_content = SYSTEM_PROMPT

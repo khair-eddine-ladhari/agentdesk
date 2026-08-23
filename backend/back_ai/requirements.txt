@@ -21,3 +21,11 @@ uvicorn==0.32.1
 langgraph
 tavily-python
 litellm
+
+# CrewAI multi-agent framework (crew.py, search_tools.py)
+crewai==0.86.0
+tenacity==9.0.0
+requests==2.32.3
+
+
+

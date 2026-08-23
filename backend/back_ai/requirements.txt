@@ -20,3 +20,4 @@ python-dotenv==1.0.1
 uvicorn==0.32.1
 langgraph
 tavily-python
+litellm

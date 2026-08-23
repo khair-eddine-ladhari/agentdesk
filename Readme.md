@@ -1,17 +1,17 @@
 # AgentDesk
 
-AgentDesk is a workspace assistant that combines a multi-agent LLM backend with a document-aware knowledge base. It lets a team upload documents, chat with an AI assistant that routes requests to specialized agents, get meetings/tasks summarized automatically, and approve or decline AI-proposed actions (emails, tasks, meetings) before anything is actually executed.
+AgentDesk is a workspace assistant that combines a multi-agent LLM backend with a document-aware knowledge base. It lets a team upload documents, chat with an AI assistant that routes requests to specialized agents, get meetings/tasks summarized automatically, find and compare products across stores, and approve or decline AI-proposed actions (emails, tasks, meetings) before anything is actually executed.
 
 ## Overview
 
-At its core, AgentDesk is built around a **classify-then-dispatch orchestrator**: every user message is routed to one of five specialist agents based on intent, rather than relying on a single general-purpose chatbot. Actions that would have a real-world effect (sending an email, creating a task, scheduling a meeting) are never executed directly by the AI — they're always proposed, logged, and require explicit human approval before an executor runs them.
+At its core, AgentDesk is built around a **classify-then-dispatch orchestrator**: every user message is routed to one of six specialist agents based on intent, rather than relying on a single general-purpose chatbot. Actions that would have a real-world effect (sending an email, creating a task, scheduling a meeting) are never executed directly by the AI — they're always proposed, logged, and require explicit human approval before an executor runs them.
 
 ## Architecture
 
 AgentDesk is split into three services:
 
 - **`back_web`** — Node.js/Express API. Owns auth, workspace/user/task/meeting data (MongoDB), the approval/execution flow, and is the only service the frontend talks to directly.
-- **`back_ai`** — Python/FastAPI agent service. Owns the LLM orchestration layer (LangGraph/LangChain agents, Groq inference, Pinecone retrieval, document ingestion). Only ever called server-to-server by `back_web`, never exposed to the browser.
+- **`back_ai`** — Python/FastAPI agent service. Owns the LLM orchestration layer (LangGraph/LangChain agents, CrewAI shopping agent, Groq inference, Pinecone retrieval, document ingestion). Only ever called server-to-server by `back_web`, never exposed to the browser.
 - **Frontend** — Next.js (App Router) application with a token-based Tailwind design system.
 
 ```
@@ -21,15 +21,15 @@ Browser
 back_web (Express)  ──JWT auth, Mongo, approval flow, executors
   │  server-to-server only
   ▼
-back_ai (FastAPI)   ──Orchestrator, agent classification, LangGraph agents
+back_ai (FastAPI)   ──Orchestrator, agent classification, LangGraph agents, CrewAI shopping agent
   │
   ▼
-Groq (LLM) · Pinecone (vector search)
+Groq (LLM) · Pinecone (vector search) · SerpApi (product search)
 ```
 
 ## Agent System
 
-Every incoming message is classified into one of five intents by an LLM router (`classify_intent`, using a low-temperature Groq call with a deterministic short-circuit for greetings/small talk), then dispatched to the matching specialist agent:
+Every incoming message is classified into one of six intents by an LLM router (`classify_intent`, using a low-temperature Groq call with a deterministic short-circuit for greetings/small talk), then dispatched to the matching specialist agent:
 
 | Intent | Agent | Purpose |
 |---|---|---|
@@ -38,8 +38,11 @@ Every incoming message is classified into one of five intents by an LLM router (
 | `structuring` | Structuring agent | Converts pasted raw notes/transcripts into structured output (key points, action items, mentioned dates) |
 | `action` | Action agent | Drafts a proposed task, email, or meeting for human approval — never executes anything itself |
 | `summarize` | Summarize agent | Builds a brief for each upcoming meeting by combining meeting data, matched open tasks, and related workspace documents |
+| `shopping` | Shopping agent | Searches and compares products across Amazon, eBay, and Walmart (via SerpApi) and recommends the best match to what the user asked for |
 
 Agents are implemented as LangGraph `create_react_agent` tool-using loops (Groq `llama-3.3-70b-versatile`) with a shared retry wrapper for transient tool-call failures. Meeting/task data for the summarize agent is passed in per-request via a factory closure rather than exposed as LLM-fillable parameters, since it comes from the trusted backend payload, not the user.
+
+The shopping agent runs separately from the LangGraph agents: it's a CrewAI crew backed by Groq, with its own deterministic intent classification (product search vs. a meta/explain/chat follow-up), context-aware follow-up resolution, and a required "Relevant data found: yes/no" check before any recommendation is returned — see `agents/shopping_agent.py` for the full reasoning.
 
 The orchestrator supports a "sticky routing" override: if the previous assistant turn was the action agent asking a clarifying question, the next user message stays routed to `action` instead of being reclassified — so a bare follow-up reply (e.g. just an email address) doesn't get misclassified as `chat` and orphan an in-progress action.
 
@@ -75,7 +78,9 @@ No agent can directly send an email, create a task, or schedule a meeting. The f
 **Agent service (`back_ai`)**
 - Python, FastAPI, Pydantic
 - LangChain / LangGraph (`create_react_agent`, ReAct tool-calling loops)
-- Groq (`llama-3.3-70b-versatile` for agents/classification)
+- CrewAI (shopping agent's comparator crew)
+- Groq (`llama-3.3-70b-versatile` for orchestrator agents/classification; `qwen/qwen3.6-27b` for the shopping agent's classification, rewrite, and comparator calls)
+- SerpApi (Amazon/eBay/Walmart product search for the shopping agent)
 - Pinecone (vector storage and retrieval)
 - LangSmith (agent evaluation dataset + experiment runs, `eval/langsmith_dataset.py`, `run_experiment.py`)
 - Guardrails module (`guardrails/review_gate.py`) for pre-execution review checks
@@ -95,6 +100,7 @@ AgentDesk/
 │   │   │   ├── action_agent.py
 │   │   │   ├── chat_agent.py
 │   │   │   ├── rag_agent.py
+│   │   │   ├── shopping_agent.py       # CrewAI + Groq product search/comparison
 │   │   │   ├── structuring_agent.py
 │   │   │   └── summery_agent.py
 │   │   ├── eval/
@@ -108,6 +114,7 @@ AgentDesk/
 │   │   │   │   ├── query_workspace_docs.py
 │   │   │   │   └── summary_tool.py
 │   │   │   ├── retrieval_tool.py
+│   │   │   ├── search_tools.py         # SerpApi Amazon/eBay/Walmart tools
 │   │   │   └── task_tool.py
 │   │   ├── .env
 │   │   ├── ingestion_tool.py
@@ -130,6 +137,7 @@ AgentDesk/
 │       │   ├── document.controller.js
 │       │   ├── meeting.controller.js
 │       │   ├── Note.controller.js
+│       │   ├── shopping.controller.js  # proxies product search to back_ai
 │       │   ├── task.controller.js
 │       │   └── workspace.controller.js
 │       ├── middleware/
@@ -155,6 +163,7 @@ AgentDesk/
 │       │   ├── meetings.js
 │       │   ├── meetings_del.js
 │       │   ├── note.routes.js
+│       │   ├── shopping.routes.js      # /api/workspaces/shopping/*
 │       │   ├── tasks.js
 │       │   ├── tasks_del.js
 │       │   └── workspace.routes.js
@@ -178,6 +187,7 @@ AgentDesk/
     │   │   │   │   └── page.jsx
     │   │   │   ├── meetings/
     │   │   │   ├── settings/
+    │   │   │   ├── shopping/           # product search/comparison UI
     │   │   │   ├── structured-notes/
     │   │   │   ├── tasks/
     │   │   │   └── layout.jsx
@@ -218,6 +228,8 @@ NODE_ENV=development|production
 **`back_ai`**
 ```
 GROQ_API_KEY=
+GROQ_API_KEY_qwen=       # used by the shopping agent (qwen3.6-27b)
+SERPAPI_KEY=             # Amazon/eBay/Walmart search for the shopping agent
 PINECONE_INDEX_NAME=
 LANGCHAIN_TRACING_V2=    # enables LangSmith tracing
 LANGCHAIN_API_KEY=
@@ -238,6 +250,7 @@ NEXT_PUBLIC_API_URL=     # back_web base URL
 | `POST` | `/api/workspaces/documents` | Upload a document for ingestion |
 | `POST` | `/api/workspaces/actions/approve` | Approve a proposed action |
 | `POST` | `/api/workspaces/actions/decline` | Decline a proposed action |
+| `POST` | `/api/workspaces/shopping/*` | Search/compare products via the shopping agent |
 | `GET` | `/api/dashboard/stats` | Workspace stats + activity/task/meeting previews |
 | `GET` | `/health` | Health check |
 
@@ -252,10 +265,11 @@ The frontend uses a small set of semantic Tailwind tokens rather than literal co
 
 ## Notable Engineering Decisions
 
-- **Server-to-server isolation**: `back_ai` only accepts requests from `back_web`'s origin — the browser never talks to the agent service directly, keeping LLM/vector-store credentials off the client-reachable surface.
+- **Server-to-server isolation**: `back_ai` only accepts requests from `back_web`'s origin — the browser never talks to the agent service directly, keeping LLM/vector-store/SerpApi credentials off the client-reachable surface.
 - **Trusted-payload data separation**: meeting/task context for the summarize agent, and workspace/user IDs for action executors, always come from the authenticated backend request — never from LLM output or client-supplied body fields — so the model can inform what happens but never dictate who it happens to or under what identity.
 - **Free-text scheduling fields**: `Meeting.time` and `Task.dueDate` are intentionally stored as free-text strings (e.g. "Friday 2pm") rather than parsed `Date` objects, since the agent proposes natural-language values from user conversation rather than validated dates — downstream consumers treat them as display text, not sortable/filterable timestamps.
 - **Graceful degradation on LLM/tool failures**: agent calls are wrapped with retry logic for transient tool-call failures, and errors are classified (rate limits vs. other failures) so the user gets an honest, specific message instead of a generic failure or a raw 500.
+- **Deterministic guards over prompt-only instructions**: the shopping agent enforces its relevance/placeholder/no-results checks in plain Python rather than relying solely on the comparator LLM to notice and report them correctly — see `shopping_agent.py` for the full set of guards.
 
 ## Screenshots
 
@@ -273,9 +287,9 @@ folder at the repo root and pointing each line below at the file, e.g.:
 |---|---|
 | ![Chat](./screenshots/chat.png) | ![Create workspace](./screenshots/create-workspace.png) |
 
-| Approval flow |
-|---|
-| ![Approval flow](./screenshots/approval-flow.png) |
+| Approval flow | Shopping |
+|---|---|
+| ![Approval flow](./screenshots/approval-flow.png) | ![Shopping](./screenshots/shopping.png) |
 
 ## Author
 

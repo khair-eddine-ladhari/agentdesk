@@ -26,6 +26,7 @@ litellm
 crewai==0.86.0
 tenacity==9.0.0
 requests==2.32.3
+setuptools
 
 
 

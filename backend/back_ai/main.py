@@ -184,7 +184,7 @@ def shopping_flow(req: ShoppingFlowRequest):
     return ShoppingFlowResponse(
         session_id=session_id,
         answer=answer,
-        session_state={"turns": session["turns"]},  # لا يزال يُعاد للتوافق مع الواجهة الأمامية
+        session_state={"turns": session["turns"]},  
     )
 
 

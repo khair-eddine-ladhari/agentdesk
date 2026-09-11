@@ -55,7 +55,7 @@ def run_action_agent(query: str, history: list = None, known_facts: str = "") ->
     is responsible for executing.
     """
     llm = ChatGroq(
-        model="llama-3.3-70b-versatile",
+        model="openai/gpt-oss-20b",
         groq_api_key=os.environ.get("GROQ_API_KEY"),
         temperature=0.1,  # low - this is structured planning, not creative writing
     )

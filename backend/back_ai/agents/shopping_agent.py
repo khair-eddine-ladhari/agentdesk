@@ -254,7 +254,7 @@ except ImportError:
     # skip; if the bug doesn't apply to your version, this is a no-op.
     pass
 
-GROQ_MODEL = os.environ.get("GROQ_MODEL", "groq/qwen/qwen3.6-27b")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
 
 # Cap how much prior answer text (e.g. a full 9-row markdown table) we
 # feed into the rewrite prompt. We only need enough for the model to

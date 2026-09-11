@@ -32,7 +32,7 @@ drafts, it never executes.
 """
 
 _llm = ChatGroq(
-    model="llama-3.3-70b-versatile",
+    model="openai/gpt-oss-20b",
     groq_api_key=os.environ.get("GROQ_API_KEY"),
     temperature=0,
 )
@@ -62,7 +62,7 @@ def run_summarize_agent(
     tasks: list = None,
     history: list = None,
     known_facts: str = "",
-) -> dict:
+) -> dict:       
     summarize_tool = make_summarize_tool(namespace, meetings or [], tasks or [])
     agent = create_react_agent(
         _llm,

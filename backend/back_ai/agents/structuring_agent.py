@@ -24,7 +24,7 @@ def run_structuring_agent(query: str) -> dict:
     needed - this agent only looks at what's directly given to it.
     """
     llm = ChatGroq(
-        model="llama-3.3-70b-versatile",
+        model="openai/gpt-oss-20b",
         groq_api_key=os.environ.get("GROQ_API_KEY"),
         temperature=0.1,  # very low - this is extraction, not generation
     )
